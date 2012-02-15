@@ -20,6 +20,13 @@ object Form1: TForm1
     Height = 13
     Caption = 'Label1'
   end
+  object Label2: TLabel
+    Left = 392
+    Top = 40
+    Width = 127
+    Height = 13
+    Caption = 'Label2'
+  end
   object Memo1: TMemo
     Left = 232
     Top = 128
@@ -71,6 +78,15 @@ object Form1: TForm1
     Caption = 'Clear All'
     TabOrder = 5
     OnClick = Button2Click
+  end
+  object Button3: TButton
+    Left = 512
+    Top = 64
+    Width = 75
+    Height = 25
+    Caption = 'Font Update'
+    TabOrder = 6
+    OnClick = Button3Click
   end
   object Timer1: TTimer
     Enabled = False

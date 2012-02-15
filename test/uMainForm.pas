@@ -17,10 +17,13 @@ type
     RadioButton1: TRadioButton;
     Timer1: TTimer;
     Button2: TButton;
+    Label2: TLabel;
+    Button3: TButton;
     procedure Button1Click(Sender: TObject);
     procedure Timer1Timer(Sender: TObject);
     procedure CheckBox1Click(Sender: TObject);
     procedure Button2Click(Sender: TObject);
+    procedure Button3Click(Sender: TObject);
   private
     { Private declarations }
   public
@@ -36,25 +39,49 @@ implementation
 
 procedure TForm1.Button1Click(Sender: TObject);
 begin
+  // Use duck typing to hide all controls with a visible property.  Start a timer
+  // to show it again after 3 seconds.
   Self.Duck.all.has('Visible').sett(false);
   Timer1.Enabled := True;
 end;
 
 procedure TForm1.Button2Click(Sender: TObject);
 begin
+  // Use duck typing to execute the Clear method of any object that supports it.
   duck.all.can('Clear').go;
+end;
+
+procedure TForm1.Button3Click(Sender: TObject);
+var
+  i : integer;
+begin
+  // This example will use the each method to show a hint for each control
+  // and a filter to make sure the fonts only get set on ever other control.
+  i := 0;
+  duck.all.each(procedure(obj : TObject)
+  begin
+    obj.duck.sett('Hint','Happy fun day');
+    obj.duck.sett('showHint',True);
+  end).filter(function(obj : TObject) : boolean
+  begin
+    inc(i);
+    result := (i mod 2) = 0
+  end).on('Font').Sett('color',clRed).Sett('Size',24);
 end;
 
 procedure TForm1.CheckBox1Click(Sender: TObject);
 begin
+  // Each time the checkbox is clicked, text will be added to each control that
+  // has a text property.
   CheckBox1.Checked := False;
-  Self.Duck.all.has('text').add(CheckBox1.Caption);
+  Self.duck.all.has('text').add(CheckBox1.Caption);
 end;
 
 procedure TForm1.Timer1Timer(Sender: TObject);
 begin
+  // Use duck typing to show all controls with a visible property.
   Timer1.Enabled := False;
-  Self.Duck.all.has('Visible').sett(True);
+  Self.duck.all.has('Visible').sett(True);
 end;
 
 end.
