@@ -41,7 +41,7 @@ procedure TForm1.Button1Click(Sender: TObject);
 begin
   // Use duck typing to hide all controls with a visible property.  Start a timer
   // to show it again after 3 seconds.
-  Self.Duck.all.has('Visible').sett(false);
+  Self.Duck.all.has('Visible').setTo(false);
   Timer1.Enabled := True;
 end;
 
@@ -56,17 +56,17 @@ var
   i : integer;
 begin
   // This example will use the each method to show a hint for each control
-  // and a filter to make sure the fonts only get set on ever other control.
+  // and a fake filter that allows all objects through followed by the "even"
+  // selector to make sure the fonts only get set on ever other control.
   i := 0;
   duck.all.each(procedure(obj : TObject)
   begin
-    obj.duck.sett('Hint','Happy fun day');
-    obj.duck.sett('showHint',True);
+    obj.duck.setTo('Hint','Happy fun day');
+    obj.duck.setTo('showHint',True);
   end).filter(function(obj : TObject) : boolean
   begin
-    inc(i);
-    result := (i mod 2) = 0
-  end).on('Font').Sett('color',clRed).Sett('Size',24);
+    result := obj.ToString <> 'Not going to match.';
+  end).even.on('Font').setTo('color',clRed).setTo('Size',24);
 end;
 
 procedure TForm1.CheckBox1Click(Sender: TObject);
@@ -81,7 +81,7 @@ procedure TForm1.Timer1Timer(Sender: TObject);
 begin
   // Use duck typing to show all controls with a visible property.
   Timer1.Enabled := False;
-  Self.duck.all.has('Visible').sett(True);
+  Self.duck.all.has('Visible').setTo(True);
 end;
 
 end.
