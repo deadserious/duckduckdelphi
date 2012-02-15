@@ -14,7 +14,7 @@
 //    http://en.wikipedia.org/wiki/Duck_typing
 //
 //  For more information on this project, please visit:
-//    http:/arcana.sivv.com
+//    http:/arcana.sivv.com/duckduckdelphi
 //
 // *****************************************************************************
 //      DUCK TYPING
@@ -86,6 +86,33 @@
 //  IN THE SOFTWARE.
 //
 // *****************************************************************************
+//      RELEASE NOTES
+// *****************************************************************************
+//   2012-02-15 : R2 Jason Southwell
+//                 + Added "each" method to ISelector allowing an anonymous
+//                   method to be called for each object in the selector.
+//                   Example:
+//                      Form1.duck.each(procedure(obj : TObject)
+//                      begin
+//                        obj.duck.sett('hint','This is the new hint');
+//                      end);
+//                 + Added "filter" method to ISelector allowing an anonymous
+//                   method to be called for each object in the selector which
+//                   is used to reduce the objects in the filter.  Return True
+//                   to include the item in the resulting selector.
+//                   Example:
+//                      Form1.duck.filter(function(obj : TObject) : boolean
+//                      begin
+//                        result := (obj.tag = 1) and SomeGlobalVariable;
+//                      end).Sett('Visible',False);
+//                 + Added "on" method to ISelector which returns a new slector
+//                   filled with the results of the object property specfied.
+//                   Example:
+//                      duck.all.on('Font').sett('Color',clRed).sett('Size',18);
+//   2012-02-14 : R1 Jason Southwell
+//                 + Initial Release to Open Source under MIT license
+// *****************************************************************************
+
 
 unit duck;
 
@@ -95,7 +122,7 @@ uses System.SysUtils, System.Classes, System.Types, System.Rtti,
   System.Generics.Collections;
 
 type
-  TNotifyReference = reference to procedure(Sender : TObject);
+  TNotifyReference = TProc<TObject>;
 
   TRTTI = class
   public
@@ -154,6 +181,7 @@ type
     function has(PropertyName : string; Value : TValue) : ISelector; overload;
     function can(MethodName : string) : ISelector;
     function isa(ClassType : TClass) : ISelector;
+    function on(PropertyName : string) : ISelector;
 
     // retrieves items enumerator
     function count : integer;
@@ -176,6 +204,8 @@ type
     function call(methodName : string) : TArray<TValue>; overload;
     function call(args : TArray<TValue>) : TArray<TValue>; overload;
     function call(methodName : string; args : TArray<TValue>) : TArray<TValue>; overload;
+    function each(method : TProc<TObject>) : ISelector;
+    function filter(method : TFunc<TObject,boolean>) : ISelector;
   end;
 
   TSelectorImpl = class(TInterfacedObject, ISelector)
@@ -196,6 +226,7 @@ type
     function has(PropertyName : string; Value : TValue) : ISelector; overload;
     function can(MethodName : string) : ISelector;
     function isa(ClassType : TClass) : ISelector;
+    function on(PropertyName : string) : ISelector;
 
     // retrieves items array
     function count : integer;
@@ -218,6 +249,8 @@ type
     function call(methodName : string) : TArray<TValue>; overload;
     function call(args : TArray<TValue>) : TArray<TValue>; overload;
     function call(methodName : string; args : TArray<TValue>) : TArray<TValue>; overload;
+    function each(method : TProc<TObject>) : ISelector;
+    function filter(method : TFunc<TObject,boolean>) : ISelector;
   end;
 
   IDuck = interface
@@ -766,6 +799,33 @@ begin
   inherited;
 end;
 
+function TSelectorImpl.each(method: TProc<TObject>): ISelector;
+var
+  i: Integer;
+begin
+  for i := 0 to FResults.Count-1 do
+    method(FResults.Items[i]);
+  Result := Self;
+end;
+
+function TSelectorImpl.filter(method: TFunc<TObject, boolean>): ISelector;
+var
+  i: Integer;
+  lst : TList<TObject>;
+begin
+  lst := TList<TObject>.Create;
+  try
+    for i := 0 to FResults.Count-1 do
+    begin
+      if method(FResults.Items[i]) then
+        lst.Add(FResults.Items[i])
+    end;
+    Result := TSelectorImpl.Create(FObject,'',lst);
+  finally
+    lst.Free;
+  end;
+end;
+
 function TSelectorImpl.go(args: TArray<TValue>): ISelector;
 begin
   call(args);
@@ -782,6 +842,25 @@ function TSelectorImpl.go: ISelector;
 begin
   call;
   result := self;
+end;
+
+function TSelectorImpl.on(propertyName: string): ISelector;
+var
+  i : integer;
+  lst : TList<TObject>;
+begin
+  lst := TList<TObject>.Create;
+  try
+    for i := 0 to FResults.Count-1 do
+    begin
+      if TRTTI.isProperty(FResults.Items[i],propertyName) and
+         TRTTI.getValue(FResults.Items[i],propertyName).IsObject then
+        lst.Add(TRTTI.getValue(FResults.Items[i],propertyName).AsObject);
+    end;
+    Result := TSelectorImpl.Create(FObject,'',lst); // Context cannot be propertyName as the filtered objects apply to different objects.
+  finally
+    lst.Free;
+  end;
 end;
 
 function TSelectorImpl.go(methodName: string; args: TArray<TValue>): ISelector;
