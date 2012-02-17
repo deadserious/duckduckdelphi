@@ -98,6 +98,8 @@ unit duck;
 //                 + Added new selector action function "replace" which alters
 //                   the value of a property only if it matches the value
 //                   supplied
+//                 + Added new duck procedure "replace" which altersthe value
+//                   of a property only if it matches the value supplied
 //                 * Fixed isa.  It's implementation had gone missing.
 //                 * Renamed parameters in TRTTI from ctrl to obj.  ctrl was a
 //                   holdover from when the class was written to work only on
@@ -105,6 +107,10 @@ unit duck;
 //                 * Changed all methods called "sett" to "setTo" due to Nick
 //                   Hodges consistent badgering and the overwheming will
 //                   demonstrated by a very scientific facebook poll.
+//                 + Added new setTo functions on Selector and Duck to allow
+//                   setting of multiple properties via TPropValue array.
+//                 + Added new asValue class method to TRTTI to simplify
+//                   convertion to TValue where needed.
 //                 + Started documenting TRTTI class
 //   2012-02-15 : R2 Jason Southwell
 //                 + Added "each" method to ISelector allowing an anonymous
@@ -299,6 +305,8 @@ type
     class procedure setTo<T>(obj: TObject; const PropertyName: string; args : TArray<TValue>; Value: T); overload; static;
     class function trySet<T>(obj: TObject; const PropertyName: string; args : TArray<TValue>; Value: T) : boolean; overload; static;
 
+    class function asValue<T>(Value : T) : TValue;
+
     class function getValue(obj: TObject; const PropertyName: string) : TValue; static;
     class procedure setValue(obj: TObject; const PropertyName: string; Value : TValue); static;
 
@@ -358,6 +366,7 @@ type
     // Property Actions upon the entire selection
     function setTo(Value : TValue) : ISelector; overload;
     function setTo(propertyName : string; Value : TValue) : ISelector; overload;
+    function setTo(NameValues : TArray<TPropValue>) : ISelector; overload;
     function replace(Find : TValue; Replace : TValue) : ISelector; overload;
     function replace(propertyName : string; Find : TValue; Replace : TValue) : ISelector; overload;
     function add(Value : TValue) : ISelector; overload;
@@ -379,7 +388,9 @@ type
   end;
 
   IDuck = interface
-    procedure setTo(propertyName : string; Value : TValue);
+    procedure setTo(propertyName : string; Value : TValue); overload;
+    procedure setTo(NameValues : TArray<TPropValue>); overload;
+    procedure replace(propertyName : string; Find : TValue; Replace : TValue);
     function get(propertyName : string) : TValue;
   	function has(propertyName : string) : boolean;
 	  function can(methodName : string) : boolean;
@@ -450,6 +461,7 @@ type
 
     // Property Actions upon the entire selection
     function setTo(Value : TValue) : ISelector; overload;
+    function setTo(NameValues : TArray<TPropValue>) : ISelector; overload;
     function setTo(propertyName : string; Value : TValue) : ISelector; overload;
     function replace(Find : TValue; Replace : TValue) : ISelector; overload;
     function replace(propertyName : string; Find : TValue; Replace : TValue) : ISelector; overload;
@@ -480,7 +492,9 @@ type
     procedure EnumerateAssociatedObjects(AOwner : TObject; List : TList<TObject>); virtual;
 
     // IDuck
-    procedure setTo(propertyName : string; Value : TValue);
+    procedure setTo(propertyName : string; Value : TValue); overload;
+    procedure setTo(NameValues : TArray<TPropValue>); overload;
+    procedure replace(propertyName : string; Find : TValue; Replace : TValue);
     function get(propertyName : string) : TValue;
   	function has(propertyName : string) : boolean;
 	  function can(methodName : string) : boolean;
@@ -590,6 +604,11 @@ begin
   begin
     Result := prop.GetValue(obj);
   end;
+end;
+
+class function TRTTI.asValue<T>(Value : T) : TValue;
+begin
+  Result := TValue.From<T>(Value);
 end;
 
 class function TRTTI.exists(obj: TObject; const Name: string): boolean;
@@ -920,6 +939,20 @@ end;
 procedure TDuckImpl.setTo(propertyName: string; Value: TValue);
 begin
   TRTTI.setValue(FOwner,propertyName, Value);
+end;
+
+procedure TDuckImpl.setTo(NameValues : TArray<TPropValue>);
+var
+  i : integer;
+begin
+  for i := 0 to Length(NameValues)-1 do
+    TRTTI.setValue(FOwner,NameValues[i].PropertyName, NameValues[i].Value);
+end;
+
+procedure TDuckImpl.replace(propertyName : string; Find : TValue; Replace : TValue);
+begin
+  if TRTTI.isSame(TRTTI.getValue(FOwner,propertyName), Find) then
+    TRTTI.setValue(FOwner,propertyName,Replace);
 end;
 
 function TDuckImpl.has(propertyName : string) : boolean;
@@ -1384,6 +1417,18 @@ begin
   for i := 0 to FResults.Count-1 do
   begin
     TRTTI.setValue(FResults.Items[i],FContext, Value);
+  end;
+  Result := Self;
+end;
+
+function TSelectorImpl.setTo(NameValues : TArray<TPropValue>) : ISelector;
+var
+  i, j : integer;
+begin
+  for i := 0 to FResults.Count-1 do
+  begin
+    for j := 0 to Length(NameValues)-1 do
+      TRTTI.setValue(FResults.Items[i],NameValues[j].PropertyName, NameValues[j].Value);
   end;
   Result := Self;
 end;
