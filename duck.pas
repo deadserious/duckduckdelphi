@@ -91,6 +91,17 @@ unit duck;
 //      RELEASE NOTES
 // *****************************************************************************
 //   working    : R3 Jason Southwell
+//                 + Added eachProperty and eachMethod iterators to the TRTTI
+//                   class.
+//                 + Added selector comparisson functions, equalTo, notEqualTo,
+//                   moreThan, and lessThan.
+//                 + Added new duck functions to return selectors including:
+//                   this (the same object via selector), related (all related
+//                   objects, note that this is the same as "all" used to be),
+//                   props (all object properties of the object), go (executes
+//                   a method and returns a selector of the result.
+//                 * Altered duck.all to return all related objects as well as
+//                   any properties of type TObject.
 //                 + Added new selector functions First, Last, Middle, Even, Odd
 //                   which return new selectors filtered accordingly.
 //                 + Added new selector function "use" which alters the current
@@ -313,9 +324,12 @@ type
     class function call(obj : TObject; const MethodName : string; args : TArray<TValue>) : TValue;
     class function tryCall(obj : TObject; const MethodName : string; args : TArray<TValue>; var AResult : TValue) : boolean;
 
-    class function isProperty(obj: TObject; const PropertyName: string) : boolean; static;
+    class function isProperty(obj: TObject; const PropertyName: string) : boolean; overload; static;
+    class function isProperty(obj: TObject; const PropertyName: string; OfType : TClass) : boolean; overload; static;
     class function isMethod(obj: TObject; const MethodName: string) : boolean; static;
     class function exists(obj: TObject; const name: string) : boolean; static;
+    class procedure eachProperty(obj : TObject; proc : TProc<TRTTIProperty>);
+    class procedure eachMethod(obj : TObject; proc : TProc<TRTTIMethod>);
   end;
 
   TEvent = class
@@ -374,16 +388,27 @@ type
     function subtract(Value : TValue) : ISelector; overload;
     function subtract(propertyName : string; Value : TValue) : ISelector; overload;
 
+    function notEqualTo(Value : TValue) : ISelector; overload;
+    function notEqualTo(propertyName : string; Value : TValue) : ISelector; overload;
+    function equalTo(Value : TValue) : ISelector; overload;
+    function equalTo(propertyName : string; Value : TValue) : ISelector; overload;
+    function moreThan(Value : TValue) : ISelector; overload;
+    function moreThan(propertyName : string; Value : TValue) : ISelector; overload;
+    function lessThan(Value : TValue) : ISelector; overload;
+    function lessThan(propertyName : string; Value : TValue) : ISelector; overload;
+
     // Method Actions upon the entire selection
     function go : ISelector; overload;
     function go(methodName : string) : ISelector; overload;
     function go(args : TArray<TValue>) : ISelector; overload;
     function go(methodName : string; args : TArray<TValue>) : ISelector; overload;
+
     function call : TArray<TValue>; overload;
     function call(methodName : string) : TArray<TValue>; overload;
     function call(args : TArray<TValue>) : TArray<TValue>; overload;
     function call(methodName : string; args : TArray<TValue>) : TArray<TValue>; overload;
-    function each(method : TProc<TObject>) : ISelector;
+
+    function each(method : TProc<TObject>) : ISelector; overload;
     function filter(method : TFunc<TObject,boolean>) : ISelector;
   end;
 
@@ -391,8 +416,10 @@ type
     procedure setTo(propertyName : string; Value : TValue); overload;
     procedure setTo(NameValues : TArray<TPropValue>); overload;
     procedure replace(propertyName : string; Find : TValue; Replace : TValue);
-    function get(propertyName : string) : TValue;
-  	function has(propertyName : string) : boolean;
+    function get(propertyName : string) : TValue; overload;
+    function get(propertyName : string; OfType : TClass) : TValue; overload;
+  	function has(propertyName : string) : boolean; overload;
+  	function has(propertyName : string; OfType : TClass) : boolean; overload;
 	  function can(methodName : string) : boolean;
     function call(methodName : string) : TValue; overload;
     function call(methodName : string; args : TArray<TValue>) : TValue; overload;
@@ -400,7 +427,15 @@ type
     function call(methodName : string; args : TArray<TValue>; var Exists : boolean) : TValue; overload;
     function call(methodName : string; var AResult : TValue) : boolean; overload;
     function call(methodName : string; args : TArray<TValue>; var AResult : TValue) : boolean; overload;
+
+    function go(methodName : string) : ISelector; overload;
+    function go(methodName : string; args : TArray<TValue>) : ISelector; overload;
+
     function all : ISelector;
+    function props : ISelector;
+    function related : ISelector;
+
+    function this : ISelector;
     function obj : TObject;
   end;
 
@@ -425,6 +460,8 @@ resourcestring
   S_MISSINGCONTEXT = 'Context missing for opperation on selector. Try explicitly stating identifier in call to method or call "use" to specify context.';
 
 implementation
+
+uses System.TypInfo;
 
 type
   TSelectorImpl = class(TInterfacedObject, ISelector)
@@ -470,6 +507,15 @@ type
     function subtract(Value : TValue) : ISelector; overload;
     function subtract(propertyName : string; Value : TValue) : ISelector; overload;
 
+    function notEqualTo(Value : TValue) : ISelector; overload;
+    function notEqualTo(propertyName : string; Value : TValue) : ISelector; overload;
+    function equalTo(Value : TValue) : ISelector; overload;
+    function equalTo(propertyName : string; Value : TValue) : ISelector; overload;
+    function moreThan(Value : TValue) : ISelector; overload;
+    function moreThan(propertyName : string; Value : TValue) : ISelector; overload;
+    function lessThan(Value : TValue) : ISelector; overload;
+    function lessThan(propertyName : string; Value : TValue) : ISelector; overload;
+
     // Method Actions upon the entire selection
     function go : ISelector; overload;
     function go(methodName : string) : ISelector; overload;
@@ -479,7 +525,7 @@ type
     function call(methodName : string) : TArray<TValue>; overload;
     function call(args : TArray<TValue>) : TArray<TValue>; overload;
     function call(methodName : string; args : TArray<TValue>) : TArray<TValue>; overload;
-    function each(method : TProc<TObject>) : ISelector;
+    function each(method : TProc<TObject>) : ISelector; overload;
     function filter(method : TFunc<TObject,boolean>) : ISelector;
   end;
 
@@ -490,14 +536,19 @@ type
   public
     constructor Create(AOwner: TObject); virtual;
     procedure EnumerateAssociatedObjects(AOwner : TObject; List : TList<TObject>); virtual;
+    procedure EnumerateObjectProperties(AOwner : TObject; List : TList<TObject>); virtual;
 
     // IDuck
     procedure setTo(propertyName : string; Value : TValue); overload;
     procedure setTo(NameValues : TArray<TPropValue>); overload;
     procedure replace(propertyName : string; Find : TValue; Replace : TValue);
-    function get(propertyName : string) : TValue;
-  	function has(propertyName : string) : boolean;
+    function get(propertyName : string) : TValue; overload;
+    function get(propertyName : string; OfType : TClass) : TValue; overload;
+  	function has(propertyName : string) : boolean; overload;
+  	function has(propertyName : string; OfType : TClass) : boolean; overload;
 	  function can(methodName : string) : boolean;
+    function go(methodName : string) : ISelector; overload;
+    function go(methodName : string; args : TArray<TValue>) : ISelector; overload;
     function call(methodName : string) : TValue; overload;
     function call(methodName : string; args : TArray<TValue>) : TValue; overload;
     function call(methodName : string; var Exists : boolean) : TValue; overload;
@@ -506,6 +557,10 @@ type
     function call(methodName : string; args : TArray<TValue>; var AResult : TValue) : boolean; overload;
     function obj : TObject;
     function all : ISelector;
+    function props : ISelector;
+    function related : ISelector;
+
+    function this : ISelector;
   end;
 
 var
@@ -623,6 +678,21 @@ begin
   Result := (cxt.GetType(obj.ClassInfo).GetProperty(PropertyName) <> nil) or
             (cxt.GetType(obj.ClassInfo).GetIndexedProperty(PropertyName) <> nil);
 end;
+
+class function TRTTI.isProperty(obj: TObject; const PropertyName: string; OfType : TClass): boolean;
+var
+  cxt : TRTTIContext;
+  prop : TRttiMember;
+begin
+  prop := cxt.GetType(obj.ClassInfo).GetProperty(PropertyName);
+  Result := (prop <> nil) and ((prop.ClassType = OfType) or prop.InheritsFrom(OfType));
+  if not Result then
+  begin
+    prop := cxt.GetType(obj.ClassInfo).GetIndexedProperty(PropertyName);
+    Result := (prop <> nil) and ((prop.ClassType = OfType) or prop.InheritsFrom(OfType));
+  end;
+end;
+
 
 class function TRTTI.isSame(const Value1, Value2: TValue): boolean;
 begin
@@ -750,6 +820,28 @@ begin
     setTo<T>(obj, propertyName, args, Value);
 end;
 
+class procedure TRTTI.eachProperty(obj : TObject; proc : TProc<TRTTIProperty>);
+var
+  cxt : TRTTIContext;
+  ary : TArray<TRttiProperty>;
+  i: Integer;
+begin
+  ary := cxt.GetType(obj.ClassInfo).GetProperties;
+  for i := 0 to length(ary)-1 do
+    proc(ary[i]);
+end;
+
+class procedure TRTTI.eachMethod(obj : TObject; proc : TProc<TRTTIMethod>);
+var
+  cxt : TRTTIContext;
+  ary : TArray<TRttiMethod>;
+  i: Integer;
+begin
+  ary := cxt.GetType(obj.ClassInfo).GetMethods;
+  for i := 0 to length(ary)-1 do
+    proc(ary[i]);
+end;
+
 { TEvent }
 
 constructor TEvent.Create;
@@ -874,6 +966,18 @@ begin
     DoIt(enumprops[i][0], enumprops[i][1]);
 end;
 
+procedure TDuckImpl.EnumerateObjectProperties(AOwner : TObject; List : TList<TObject>);
+begin
+  TRTTI.eachProperty(AOwner,procedure(prop : TRTTIProperty)
+  begin
+    case prop.PropertyType.TypeKind of
+      TTypeKind.tkClass,
+      TTypeKind.tkClassRef:
+        List.Add(prop.GetValue(AOwner).AsObject);
+    end;
+  end);
+end;
+
 function TDuckImpl.call(methodName: string; args: TArray<TValue>): TValue;
 begin
   call(methodName,args,Result);
@@ -918,9 +1022,49 @@ begin
   call(methodName, args, Result);
 end;
 
+function TDuckImpl.go(methodName : string) : ISelector;
+var
+  lst : TList<TObject>;
+  v : TValue;
+begin
+  lst := TList<TObject>.Create;
+  try
+    v := call(methodName);
+    if v.IsObject then
+      lst.Add(v.AsObject);
+    Result := TSelectorImpl.Create(FOwner,'',lst);
+  finally
+    lst.Free;
+  end;
+end;
+
+function TDuckImpl.go(methodName : string; args : TArray<TValue>) : ISelector;
+var
+  lst : TList<TObject>;
+  v : TValue;
+begin
+  lst := TList<TObject>.Create;
+  try
+    v := call(methodName, args);
+    if v.IsObject then
+      lst.Add(v.AsObject);
+    Result := TSelectorImpl.Create(FOwner,'',lst);
+  finally
+    lst.Free;
+  end;
+end;
+
 function TDuckImpl.get(propertyName: string): TValue;
 begin
   Result := TRTTI.getValue(FOwner,propertyName);
+end;
+
+function TDuckImpl.get(propertyName: string; OfType : TClass): TValue;
+begin
+  if TRTTI.isProperty(FOwner,propertyName, OfType) then
+    Result := TRTTI.getValue(FOwner,propertyName)
+  else
+    Result := TValue.Empty;
 end;
 
 function TDuckImpl.all: ISelector;
@@ -930,7 +1074,47 @@ begin
   lst := TList<TObject>.Create;
   try
     EnumerateAssociatedObjects(FOwner, lst);
+    EnumerateObjectProperties(FOwner, lst);
     Result := TSelectorImpl.Create(FOwner, '', lst);
+  finally
+    lst.Free;
+  end;
+end;
+
+function TDuckImpl.props : ISelector;
+var
+  lst : TList<TObject>;
+begin
+  lst := TList<TObject>.Create;
+  try
+    EnumerateObjectProperties(FOwner, lst);
+    Result := TSelectorImpl.Create(FOwner, '', lst);
+  finally
+    lst.Free;
+  end;
+end;
+
+function TDuckImpl.related : ISelector;
+var
+  lst : TList<TObject>;
+begin
+  lst := TList<TObject>.Create;
+  try
+    EnumerateAssociatedObjects(FOwner, lst);
+    Result := TSelectorImpl.Create(FOwner, '', lst);
+  finally
+    lst.Free;
+  end;
+end;
+
+function TDuckImpl.this : ISelector;
+var
+  lst : TList<TObject>;
+begin
+  lst := TList<TObject>.Create;
+  try
+    lst.Add(Self);
+    Result := TSelectorIMpl.Create(FOwner,'',lst);
   finally
     lst.Free;
   end;
@@ -958,6 +1142,11 @@ end;
 function TDuckImpl.has(propertyName : string) : boolean;
 begin
   Result := TRTTI.isProperty(FOwner, propertyName);
+end;
+
+function TDuckImpl.has(propertyName : string; OfType : TClass) : boolean;
+begin
+  Result := TRTTI.isProperty(FOwner, propertyName, OfType);
 end;
 
 function TDuckImpl.IndexParam(idx: integer): TArray<TValue>;
@@ -1497,6 +1686,154 @@ begin
     TRTTI.setValue(FResults.Items[i],propertyName, TValue.FromVariant(TRTTI.getValue(FResults.Items[i],propertyName).AsVariant - Value.AsVariant));
   end;
   Result := Self;
+end;
+
+function TSelectorImpl.notEqualTo(Value : TValue) : ISelector;
+var
+  i : integer;
+  lst : TList<TObject>;
+begin
+  RequireContext;
+  lst := TList<TObject>.Create;
+  try
+    for i := 0 to FResults.Count-1 do
+    begin
+      if TRTTI.getValue(FResults.Items[i],FContext).AsVariant <> Value.AsVariant then
+        lst.Add(FResults.Items[i]);
+    end;
+    Result := TSelectorImpl.Create(FObject,FContext,lst);
+  finally
+    lst.Free;
+  end;
+end;
+
+function TSelectorImpl.notEqualTo(propertyName : string; Value : TValue) : ISelector;
+var
+  i : integer;
+  lst : TList<TObject>;
+begin
+  lst := TList<TObject>.Create;
+  try
+    for i := 0 to FResults.Count-1 do
+    begin
+      if TRTTI.getValue(FResults.Items[i],propertyName).AsVariant <> Value.AsVariant then
+        lst.Add(FResults.Items[i]);
+    end;
+    Result := TSelectorImpl.Create(FObject,FContext,lst);
+  finally
+    lst.Free;
+  end;
+end;
+
+function TSelectorImpl.equalTo(Value : TValue) : ISelector;
+var
+  i : integer;
+  lst : TList<TObject>;
+begin
+  RequireContext;
+  lst := TList<TObject>.Create;
+  try
+    for i := 0 to FResults.Count-1 do
+    begin
+      if TRTTI.getValue(FResults.Items[i],FContext).AsVariant = Value.AsVariant then
+        lst.Add(FResults.Items[i]);
+    end;
+    Result := TSelectorImpl.Create(FObject,FContext,lst);
+  finally
+    lst.Free;
+  end;
+end;
+
+function TSelectorImpl.equalTo(propertyName : string; Value : TValue) : ISelector;
+var
+  i : integer;
+  lst : TList<TObject>;
+begin
+  lst := TList<TObject>.Create;
+  try
+    for i := 0 to FResults.Count-1 do
+    begin
+      if TRTTI.getValue(FResults.Items[i],propertyName).AsVariant = Value.AsVariant then
+        lst.Add(FResults.Items[i]);
+    end;
+    Result := TSelectorImpl.Create(FObject,FContext,lst);
+  finally
+    lst.Free;
+  end;
+end;
+
+function TSelectorImpl.moreThan(Value : TValue) : ISelector;
+var
+  i : integer;
+  lst : TList<TObject>;
+begin
+  RequireContext;
+  lst := TList<TObject>.Create;
+  try
+    for i := 0 to FResults.Count-1 do
+    begin
+      if TRTTI.getValue(FResults.Items[i],FContext).AsVariant > Value.AsVariant then
+        lst.Add(FResults.Items[i]);
+    end;
+    Result := TSelectorImpl.Create(FObject,FContext,lst);
+  finally
+    lst.Free;
+  end;
+end;
+
+function TSelectorImpl.moreThan(propertyName : string; Value : TValue) : ISelector;
+var
+  i : integer;
+  lst : TList<TObject>;
+begin
+  lst := TList<TObject>.Create;
+  try
+    for i := 0 to FResults.Count-1 do
+    begin
+      if TRTTI.getValue(FResults.Items[i],propertyName).AsVariant > Value.AsVariant then
+        lst.Add(FResults.Items[i]);
+    end;
+    Result := TSelectorImpl.Create(FObject,FContext,lst);
+  finally
+    lst.Free;
+  end;
+end;
+
+function TSelectorImpl.lessThan(Value : TValue) : ISelector;
+var
+  i : integer;
+  lst : TList<TObject>;
+begin
+  RequireContext;
+  lst := TList<TObject>.Create;
+  try
+    for i := 0 to FResults.Count-1 do
+    begin
+      if TRTTI.getValue(FResults.Items[i],FContext).AsVariant < Value.AsVariant then
+        lst.Add(FResults.Items[i]);
+    end;
+    Result := TSelectorImpl.Create(FObject,FContext,lst);
+  finally
+    lst.Free;
+  end;
+end;
+
+function TSelectorImpl.lessThan(propertyName : string; Value : TValue) : ISelector;
+var
+  i : integer;
+  lst : TList<TObject>;
+begin
+  lst := TList<TObject>.Create;
+  try
+    for i := 0 to FResults.Count-1 do
+    begin
+      if TRTTI.getValue(FResults.Items[i],propertyName).AsVariant < Value.AsVariant then
+        lst.Add(FResults.Items[i]);
+    end;
+    Result := TSelectorImpl.Create(FObject,FContext,lst);
+  finally
+    lst.Free;
+  end;
 end;
 
 function TSelectorImpl.has(PropertyName: string; Value: TValue): ISelector;
