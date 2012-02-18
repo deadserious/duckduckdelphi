@@ -88,6 +88,24 @@ object Form1: TForm1
     TabOrder = 6
     OnClick = Button3Click
   end
+  object Button4: TButton
+    Left = 448
+    Top = 176
+    Width = 75
+    Height = 25
+    Caption = 'Add'
+    TabOrder = 7
+    OnClick = Button4Click
+  end
+  object Button5: TButton
+    Left = 448
+    Top = 216
+    Width = 121
+    Height = 25
+    Caption = 'Add Impersonate'
+    TabOrder = 8
+    OnClick = Button5Click
+  end
   object Timer1: TTimer
     Enabled = False
     Interval = 3000

@@ -8,6 +8,20 @@ uses
   Vcl.ExtCtrls;
 
 type
+  {$M+}
+  IAdder = interface(IInterface)
+    function Add(A,B : integer) : Integer;
+  end;
+
+  IFloatAdder = interface(IInterface)
+    function Add(A,B : single) : single;
+  end;
+
+  TMyAdder = class(TObject) // does not support IAdder
+  public
+    function add(A,B : integer) : integer;
+  end;
+
   TForm1 = class(TForm)
     Label1: TLabel;
     Memo1: TMemo;
@@ -19,11 +33,15 @@ type
     Button2: TButton;
     Label2: TLabel;
     Button3: TButton;
+    Button4: TButton;
+    Button5: TButton;
     procedure Button1Click(Sender: TObject);
     procedure Timer1Timer(Sender: TObject);
     procedure CheckBox1Click(Sender: TObject);
     procedure Button2Click(Sender: TObject);
     procedure Button3Click(Sender: TObject);
+    procedure Button4Click(Sender: TObject);
+    procedure Button5Click(Sender: TObject);
   private
     { Private declarations }
   public
@@ -69,6 +87,52 @@ begin
   end).even.on('Font').setTo('color',clRed).setTo('Size',24);
 end;
 
+procedure TForm1.Button4Click(Sender: TObject);
+var
+  obj : TObject;
+  iResult : integer;
+  eResult : Extended;
+begin
+  obj := TMyAdder.Create;
+  try
+    if obj.impersonates<IAdder> then
+    begin
+      iResult := obj.duck.call('Add',[2,5]).AsInteger;
+      Edit1.Text := IntToStr(iResult);
+    end;
+    if obj.impersonates<IFloatAdder> then
+    begin
+      eResult := obj.duck.call('Add',[2.03,5.5]).AsExtended;
+      Memo1.Text := FloatToStr(eResult);
+    end;
+  finally
+    obj.Free;
+  end;
+end;
+
+procedure TForm1.Button5Click(Sender: TObject);
+var
+  obj : TObject;
+  iResult : integer;
+  eResult : Extended;
+begin
+  obj := TMyAdder.Create;
+  try
+    if obj.impersonates<IAdder> then
+    begin
+      iResult := obj.asA<IAdder>.Add(2,7);
+      Edit1.Text := IntToStr(iResult);
+    end;
+    if obj.impersonates<IFloatAdder> then
+    begin
+      eResult := obj.asA<IAdder>.Add(2.22,7.44);
+      Memo1.Text := FloatToStr(eResult);
+    end;
+  finally
+    obj.Free;
+  end;
+end;
+
 procedure TForm1.CheckBox1Click(Sender: TObject);
 begin
   // Each time the checkbox is clicked, text will be added to each control that
@@ -82,6 +146,13 @@ begin
   // Use duck typing to show all controls with a visible property.
   Timer1.Enabled := False;
   Self.duck.all.has('Visible').setTo(True);
+end;
+
+{ TMyAdder }
+
+function TMyAdder.add(A, B: integer): integer;
+begin
+  Result := A+B;
 end;
 
 end.
