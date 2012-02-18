@@ -90,7 +90,18 @@ unit duck;
 // *****************************************************************************
 //      RELEASE NOTES
 // *****************************************************************************
-//   working    : R3 Jason Southwell
+//   2012-02-17 : R3 Jason Southwell
+//                 + Added asA<I> to return a custom variant wrapper around the
+//                   object allowing it to be called as though it were the
+//                   interface supplied without using the duck interface methods.
+//                   allowing you to see if the object has all of the methods
+//                   and properties required of the interface even if it
+//                   doesn't implement the interface.
+//                 + Added impersonates<I> check to the object class helper
+//                   allowing you to see if the object has all of the methods
+//                   and properties required of the interface even if it
+//                   doesn't implement the interface.
+//                 + Added several overloads to better support indexed properties
 //                 + Added eachProperty and eachMethod iterators to the TRTTI
 //                   class.
 //                 + Added selector comparisson functions, equalTo, notEqualTo,
@@ -150,11 +161,13 @@ unit duck;
 
 interface
 
-uses System.SysUtils, System.Classes, System.Types, System.Rtti,
-  System.Generics.Collections;
+uses System.SysUtils, System.Classes, System.Types, System.Rtti, System.TypInfo,
+  System.Generics.Collections, System.Variants;
 
 type
   TNotifyReference = TProc<TObject>;
+
+  IImpersonated = Variant;
 
   TRTTI = class
   public
@@ -172,7 +185,8 @@ type
     ///	  True if the two values represent the same value of the same type.
     ///	  False if they do not.
     ///	</returns>
-    class function isSame(const Value1, Value2 : TValue) : boolean; static;
+    class function isSame(const Value1, Value2 : TValue) : boolean; overload; static;
+    class function isSame(const Params1, Params2: TArray<TRttiParameter>) : boolean; overload; static;
 
     ///	<summary>
     ///	  Checks an object's property to determine if it is of the specified
@@ -318,18 +332,34 @@ type
 
     class function asValue<T>(Value : T) : TValue;
 
-    class function getValue(obj: TObject; const PropertyName: string) : TValue; static;
-    class procedure setValue(obj: TObject; const PropertyName: string; Value : TValue); static;
+    class function getValue(obj: TObject; const PropertyName: string) : TValue; overload; static;
+    class function getValue(obj: TObject; const PropertyName: string; args : TArray<TValue>) : TValue; overload; static;
+    class procedure setValue(obj: TObject; const PropertyName: string; Value : TValue); overload; static;
+    class procedure setValue(obj: TObject; const PropertyName: string; args : TArray<TValue>; Value : TValue); overload; static;
 
     class function call(obj : TObject; const MethodName : string; args : TArray<TValue>) : TValue;
     class function tryCall(obj : TObject; const MethodName : string; args : TArray<TValue>; var AResult : TValue) : boolean;
 
     class function isProperty(obj: TObject; const PropertyName: string) : boolean; overload; static;
+    class function isProperty(pti : PTypeInfo; const PropertyName: string) : boolean; overload; static;
     class function isProperty(obj: TObject; const PropertyName: string; OfType : TClass) : boolean; overload; static;
-    class function isMethod(obj: TObject; const MethodName: string) : boolean; static;
-    class function exists(obj: TObject; const name: string) : boolean; static;
-    class procedure eachProperty(obj : TObject; proc : TProc<TRTTIProperty>);
-    class procedure eachMethod(obj : TObject; proc : TProc<TRTTIMethod>);
+    class function isProperty(pti : PTypeInfo; const PropertyName: string; OfType : TClass) : boolean; overload; static;
+    class function isMethod(obj: TObject; const MethodName: string) : boolean;  overload; static;
+    class function isMethod(pti : PTypeInfo; const MethodName: string) : boolean;  overload; static;
+    class function isMethod(obj: TObject; const MethodName: string; Params : TArray<TRTTIParameter>) : boolean;  overload; static;
+    class function isMethod(pti : PTypeInfo; const MethodName: string; Params : TArray<TRTTIParameter>) : boolean;  overload; static;
+    class function isMethod(obj: TObject; const MethodName: string; Params : TArray<TRTTIParameter>; Returns : TRTTIType) : boolean;  overload; static;
+    class function isMethod(pti : PTypeInfo; const MethodName: string; Params : TArray<TRTTIParameter>; Returns : TRTTIType) : boolean;  overload; static;
+    class function exists(obj: TObject; const name: string) : boolean; overload; static;
+    class function exists(pti : PTypeInfo; const name: string) : boolean; overload; static;
+    class procedure eachProperty(obj : TObject; proc : TProc<TRTTIProperty>); overload;
+    class procedure eachProperty(pti : PTypeInfo; proc : TProc<TRTTIProperty>); overload;
+    class procedure eachMethod(obj : TObject; proc : TProc<TRTTIMethod>); overload;
+    class procedure eachMethod(pti : PTypeInfo; proc : TProc<TRTTIMethod>); overload;
+    class procedure eachProperty(obj : TObject; proc : TFunc<TRTTIProperty, boolean>); overload;
+    class procedure eachProperty(pti : PTypeInfo; proc : TFunc<TRTTIProperty, boolean>); overload;
+    class procedure eachMethod(obj : TObject; proc : TFunc<TRTTIMethod, boolean>); overload;
+    class procedure eachMethod(pti : PTypeInfo; proc : TFunc<TRTTIMethod, boolean>); overload;
   end;
 
   TEvent = class
@@ -361,7 +391,9 @@ type
     function has(PropertyNames : TArray<string>) : ISelector; overload;
     function has(NameValues : TArray<TPropValue>) : ISelector; overload;
     function has(PropertyName : string; Value : TValue) : ISelector; overload;
-    function can(MethodName : string) : ISelector;
+    function can(MethodName : string) : ISelector; overload;
+	  function can(methodName : string; Params : TArray<TRttiParameter>) : ISelector; overload;
+	  function can(methodName : string; Params : TArray<TRttiParameter>; Returns : TRttiType) : ISelector; overload;
     function isa(ClassType : TClass) : ISelector;
     function on(PropertyName : string) : ISelector;
     function first(Cnt : integer) : ISelector; overload;
@@ -406,7 +438,9 @@ type
     function call : TArray<TValue>; overload;
     function call(methodName : string) : TArray<TValue>; overload;
     function call(args : TArray<TValue>) : TArray<TValue>; overload;
+    function call(args : array of variant) : TArray<TValue>; overload;
     function call(methodName : string; args : TArray<TValue>) : TArray<TValue>; overload;
+    function call(methodName : string; args : array of Variant; var AResult : TValue) : TArray<TValue>; overload;
 
     function each(method : TProc<TObject>) : ISelector; overload;
     function filter(method : TFunc<TObject,boolean>) : ISelector;
@@ -420,13 +454,18 @@ type
     function get(propertyName : string; OfType : TClass) : TValue; overload;
   	function has(propertyName : string) : boolean; overload;
   	function has(propertyName : string; OfType : TClass) : boolean; overload;
-	  function can(methodName : string) : boolean;
+	  function can(methodName : string) : boolean; overload;
+	  function can(methodName : string; Params : TArray<TRttiParameter>) : boolean; overload;
+	  function can(methodName : string; Params : TArray<TRttiParameter>; Returns : TRttiType) : boolean; overload;
     function call(methodName : string) : TValue; overload;
     function call(methodName : string; args : TArray<TValue>) : TValue; overload;
+    function call(methodName : string; args : array of variant) : TValue; overload;
     function call(methodName : string; var Exists : boolean) : TValue; overload;
     function call(methodName : string; args : TArray<TValue>; var Exists : boolean) : TValue; overload;
+    function call(methodName : string; args : array of Variant; var Exists : boolean) : TValue; overload;
     function call(methodName : string; var AResult : TValue) : boolean; overload;
     function call(methodName : string; args : TArray<TValue>; var AResult : TValue) : boolean; overload;
+    function call(methodName : string; args : array of Variant; var AResult : TValue) : boolean; overload;
 
     function go(methodName : string) : ISelector; overload;
     function go(methodName : string; args : TArray<TValue>) : ISelector; overload;
@@ -442,12 +481,42 @@ type
   TDuckHelper = class helper for TObject
   public
     function duck : IDuck;
+    // this should be under IDuck, but interfaces don't currently support generic methods.
+    function impersonates<Intf> : boolean;
+    function asA<Intf> : IImpersonated;
   end;
 
   TDuck = class(TObject)
   public
     function duck : IDuck;
+    // this should be under IDuck, but interfaces don't currently support generic methods.
+    function impersonates<Intf> : boolean;
+    function asA<Intf> : IImpersonated;
   end;
+
+  TDuckVarData = packed record
+    VType : TVarType;
+    VDuck : IDuck;
+    VIType : PTypeInfo;
+    Reserved1: LongInt;
+    Reserved2 : WordBool;
+  end;
+
+type
+  TDuckVariantType = class(TInvokeableVariantType)
+  protected
+    procedure DispInvoke(Dest: PVarData; const Source: TVarData;
+      CallDesc: PCallDesc; Params: Pointer); override;
+  public
+    procedure Clear(var V: TVarData); override;
+    procedure Copy(var Dest: TVarData; const Source: TVarData;
+      const Indirect: Boolean); override;
+  end;
+
+
+var
+  DuckVariant : TDuckVariantType;
+
 
 var
   Event : TEvent;
@@ -456,12 +525,14 @@ var
 function PV(const APropertyName : string; const AValue : TValue) : TPropValue;
 procedure RegisterPropertyEnumerator(const IndexedProperty : string; const CountProperty : string);
 
+function DuckVarType : TVarType;
+function VarIsDuck(const AValue : Variant) : Boolean;
+function VarAsDuck(const AValue : Variant) : IImpersonated;
+
 resourcestring
   S_MISSINGCONTEXT = 'Context missing for opperation on selector. Try explicitly stating identifier in call to method or call "use" to specify context.';
 
 implementation
-
-uses System.TypInfo;
 
 type
   TSelectorImpl = class(TInterfacedObject, ISelector)
@@ -480,7 +551,9 @@ type
     function has(PropertyNames : TArray<string>) : ISelector; overload;
     function has(NameValues : TArray<TPropValue>) : ISelector; overload;
     function has(PropertyName : string; Value : TValue) : ISelector; overload;
-    function can(MethodName : string) : ISelector;
+    function can(MethodName : string) : ISelector; overload;
+	  function can(methodName : string; Params : TArray<TRttiParameter>) : ISelector; overload;
+	  function can(methodName : string; Params : TArray<TRttiParameter>; Returns : TRttiType) : ISelector; overload;
     function isa(ClassType : TClass) : ISelector;
     function on(PropertyName : string) : ISelector;
     function first(Cnt : integer) : ISelector; overload;
@@ -524,7 +597,9 @@ type
     function call : TArray<TValue>; overload;
     function call(methodName : string) : TArray<TValue>; overload;
     function call(args : TArray<TValue>) : TArray<TValue>; overload;
+    function call(args : array of variant) : TArray<TValue>; overload;
     function call(methodName : string; args : TArray<TValue>) : TArray<TValue>; overload;
+    function call(methodName : string; args : array of Variant; var AResult : TValue) : TArray<TValue>; overload;
     function each(method : TProc<TObject>) : ISelector; overload;
     function filter(method : TFunc<TObject,boolean>) : ISelector;
   end;
@@ -546,15 +621,20 @@ type
     function get(propertyName : string; OfType : TClass) : TValue; overload;
   	function has(propertyName : string) : boolean; overload;
   	function has(propertyName : string; OfType : TClass) : boolean; overload;
-	  function can(methodName : string) : boolean;
+	  function can(methodName : string) : boolean; overload;
+	  function can(methodName : string; Params : TArray<TRttiParameter>) : boolean; overload;
+	  function can(methodName : string; Params : TArray<TRttiParameter>; Returns : TRttiType) : boolean; overload;
     function go(methodName : string) : ISelector; overload;
     function go(methodName : string; args : TArray<TValue>) : ISelector; overload;
     function call(methodName : string) : TValue; overload;
     function call(methodName : string; args : TArray<TValue>) : TValue; overload;
+    function call(methodName : string; args : array of variant) : TValue; overload;
     function call(methodName : string; var Exists : boolean) : TValue; overload;
     function call(methodName : string; args : TArray<TValue>; var Exists : boolean) : TValue; overload;
+    function call(methodName : string; args : array of Variant; var Exists : boolean) : TValue; overload;
     function call(methodName : string; var AResult : TValue) : boolean; overload;
     function call(methodName : string; args : TArray<TValue>; var AResult : TValue) : boolean; overload;
+    function call(methodName : string; args : array of Variant; var AResult : TValue) : boolean; overload;
     function obj : TObject;
     function all : ISelector;
     function props : ISelector;
@@ -565,6 +645,24 @@ type
 
 var
   enumprops : TArray<TArray<string>>;
+
+function DuckVarType : TVarType;
+begin
+  Result := DuckVariant.VarType;
+end;
+
+function VarIsDuck(const AValue : Variant) : Boolean;
+begin
+  Result := (TVarData(AValue).VType and varTypeMask) = DuckVarType;
+end;
+
+function VarAsDuck(const AValue : Variant) : IImpersonated;
+begin
+  if not VarIsDuck(AValue) then
+    VarCast(Result,AValue,DuckVarType)
+  else
+    Result := AValue;
+end;
 
 function PV(const APropertyName : string; const AValue : TValue) : TPropValue;
 begin
@@ -661,6 +759,19 @@ begin
   end;
 end;
 
+class function TRTTI.getValue(obj: TObject; const PropertyName: string; args : TArray<TValue>) : TValue;
+var
+  cxt : TRTTIContext;
+  prop : TRttiIndexedProperty;
+begin
+  Result := nil;
+  prop := cxt.GetType(obj.ClassInfo).GetIndexedProperty(PropertyName);
+  if prop <> nil then
+  begin
+    Result := prop.GetValue(obj, args);
+  end;
+end;
+
 class function TRTTI.asValue<T>(Value : T) : TValue;
 begin
   Result := TValue.From<T>(Value);
@@ -671,12 +782,25 @@ begin
   Result := isProperty(obj, Name) or isMethod(obj, Name);
 end;
 
+class function TRTTI.exists(pti : PTypeInfo; const Name: string): boolean;
+begin
+  Result := isProperty(pti, Name) or isMethod(pti, Name);
+end;
+
 class function TRTTI.isProperty(obj: TObject; const PropertyName: string): boolean;
 var
   cxt : TRTTIContext;
 begin
   Result := (cxt.GetType(obj.ClassInfo).GetProperty(PropertyName) <> nil) or
             (cxt.GetType(obj.ClassInfo).GetIndexedProperty(PropertyName) <> nil);
+end;
+
+class function TRTTI.isProperty(pti : PTypeInfo; const PropertyName: string): boolean;
+var
+  cxt : TRTTIContext;
+begin
+  Result := (cxt.GetType(pti).GetProperty(PropertyName) <> nil) or
+            (cxt.GetType(pti).GetIndexedProperty(PropertyName) <> nil);
 end;
 
 class function TRTTI.isProperty(obj: TObject; const PropertyName: string; OfType : TClass): boolean;
@@ -689,6 +813,20 @@ begin
   if not Result then
   begin
     prop := cxt.GetType(obj.ClassInfo).GetIndexedProperty(PropertyName);
+    Result := (prop <> nil) and ((prop.ClassType = OfType) or prop.InheritsFrom(OfType));
+  end;
+end;
+
+class function TRTTI.isProperty(pti : PTypeInfo; const PropertyName: string; OfType : TClass): boolean;
+var
+  cxt : TRTTIContext;
+  prop : TRttiMember;
+begin
+  prop := cxt.GetType(pti).GetProperty(PropertyName);
+  Result := (prop <> nil) and ((prop.ClassType = OfType) or prop.InheritsFrom(OfType));
+  if not Result then
+  begin
+    prop := cxt.GetType(pti).GetIndexedProperty(PropertyName);
     Result := (prop <> nil) and ((prop.ClassType = OfType) or prop.InheritsFrom(OfType));
   end;
 end;
@@ -710,6 +848,20 @@ begin
        (Value1.IsType<Currency> and Value2.IsType<string> and (Value1.AsCurrency = Value2.AsCurrency)) or
        (Value1.IsType<Variant> and Value2.IsType<Variant> and (Value1.AsVariant = Value2.AsVariant))
     );
+end;
+
+class function TRTTI.isSame(const Params1, Params2: TArray<TRttiParameter>) : boolean;
+var
+  i: Integer;
+begin
+  Result := Length(Params1) = Length(Params2);
+  if Result then
+    for i := Low(Params1) to High(Params1) do
+    begin
+      Result := Params1[i].ParamType = Params2[i].ParamType;
+      if not Result then
+        break;
+    end;
 end;
 
 class function TRTTI.isA<T>(obj: TObject; const PropertyName: string): boolean;
@@ -746,6 +898,49 @@ begin
   Result := cxt.GetType(obj.ClassInfo).GetMethod(MethodName) <> nil;
 end;
 
+class function TRTTI.isMethod(pti : PTypeInfo; const MethodName: string): boolean;
+var
+  cxt : TRTTIContext;
+begin
+  Result := cxt.GetType(pti).GetMethod(MethodName) <> nil;
+end;
+
+class function TRTTI.isMethod(obj: TObject; const MethodName: string; Params : TArray<TRTTIParameter>) : boolean;
+var
+  cxt : TRTTIContext;
+  m : TRTTIMethod;
+begin
+  m := cxt.GetType(obj.ClassInfo).GetMethod(MethodName);
+  Result := (m <> nil) and isSame(m.GetParameters,Params);
+end;
+
+class function TRTTI.isMethod(pti : PTypeInfo; const MethodName: string; Params : TArray<TRTTIParameter>) : boolean;
+var
+  cxt : TRTTIContext;
+  m : TRTTIMethod;
+begin
+  m := cxt.GetType(pti).GetMethod(MethodName);
+  Result := (m <> nil) and isSame(m.GetParameters,Params);
+end;
+
+class function TRTTI.isMethod(obj: TObject; const MethodName: string; Params : TArray<TRTTIParameter>; Returns : TRTTIType) : boolean;
+var
+  cxt : TRTTIContext;
+  m : TRTTIMethod;
+begin
+  m := cxt.GetType(obj.ClassInfo).GetMethod(MethodName);
+  Result := (m <> nil) and (Returns = m.ReturnType) and isSame(m.GetParameters,Params);
+end;
+
+class function TRTTI.isMethod(pti : PTypeInfo; const MethodName: string; Params : TArray<TRTTIParameter>; Returns : TRTTIType) : boolean;
+var
+  cxt : TRTTIContext;
+  m : TRTTIMethod;
+begin
+  m := cxt.GetType(pti).GetMethod(MethodName);
+  Result := (m <> nil) and (Returns = m.ReturnType) and isSame(m.GetParameters,Params);
+end;
+
 class procedure TRTTI.setTo<T>(obj: TObject; const PropertyName: string; Value: T);
 var
   cxt : TRTTIContext;
@@ -780,6 +975,18 @@ begin
   if prop <> nil then
   begin
     prop.SetValue(obj, Value);
+  end;
+end;
+
+class procedure TRTTI.setValue(obj: TObject; const PropertyName: string; args : TArray<TValue>; Value : TValue);
+var
+  cxt : TRTTIContext;
+  prop : TRttiIndexedProperty;
+begin
+  prop := cxt.GetType(obj.ClassInfo).GetIndexedProperty(PropertyName);
+  if prop <> nil then
+  begin
+    prop.SetValue(obj, args, Value);
   end;
 end;
 
@@ -831,6 +1038,17 @@ begin
     proc(ary[i]);
 end;
 
+class procedure TRTTI.eachProperty(pti : PTypeInfo; proc : TProc<TRTTIProperty>);
+var
+  cxt : TRTTIContext;
+  ary : TArray<TRttiProperty>;
+  i: Integer;
+begin
+  ary := cxt.GetType(pti).GetProperties;
+  for i := 0 to length(ary)-1 do
+    proc(ary[i]);
+end;
+
 class procedure TRTTI.eachMethod(obj : TObject; proc : TProc<TRTTIMethod>);
 var
   cxt : TRTTIContext;
@@ -840,6 +1058,65 @@ begin
   ary := cxt.GetType(obj.ClassInfo).GetMethods;
   for i := 0 to length(ary)-1 do
     proc(ary[i]);
+end;
+
+class procedure TRTTI.eachMethod(pti : PTypeInfo; proc : TProc<TRTTIMethod>);
+var
+  cxt : TRTTIContext;
+  ary : TArray<TRttiMethod>;
+  i: Integer;
+begin
+  ary := cxt.GetType(pti).GetMethods;
+  for i := 0 to length(ary)-1 do
+    proc(ary[i]);
+end;
+
+class procedure TRTTI.eachProperty(obj : TObject; proc : TFunc<TRTTIProperty, boolean>);
+var
+  cxt : TRTTIContext;
+  ary : TArray<TRttiProperty>;
+  i: Integer;
+begin
+  ary := cxt.GetType(obj.ClassInfo).GetProperties;
+  for i := 0 to length(ary)-1 do
+    if not proc(ary[i]) then
+      break;
+end;
+
+class procedure TRTTI.eachProperty(pti : PTypeInfo; proc : TFunc<TRTTIProperty, boolean>);
+var
+  cxt : TRTTIContext;
+  ary : TArray<TRttiProperty>;
+  i: Integer;
+begin
+  ary := cxt.GetType(pti).GetProperties;
+  for i := 0 to length(ary)-1 do
+    if not proc(ary[i]) then
+      break;
+end;
+
+class procedure TRTTI.eachMethod(obj : TObject; proc : TFunc<TRTTIMethod, boolean>);
+var
+  cxt : TRTTIContext;
+  ary : TArray<TRttiMethod>;
+  i: Integer;
+begin
+  ary := cxt.GetType(obj.ClassInfo).GetMethods;
+  for i := 0 to length(ary)-1 do
+    if not proc(ary[i]) then
+      break;
+end;
+
+class procedure TRTTI.eachMethod(pti : PTypeInfo; proc : TFunc<TRTTIMethod, boolean>);
+var
+  cxt : TRTTIContext;
+  ary : TArray<TRttiMethod>;
+  i: Integer;
+begin
+  ary := cxt.GetType(pti).GetMethods;
+  for i := 0 to length(ary)-1 do
+    if not proc(ary[i]) then
+      break;
 end;
 
 { TEvent }
@@ -983,8 +1260,18 @@ begin
   call(methodName,args,Result);
 end;
 
+function TDuckImpl.call(methodName : string; args : array of variant) : TValue;
+begin
+  call(methodName,args,Result);
+end;
+
 function TDuckImpl.call(methodName: string; args: TArray<TValue>;
   var Exists: boolean): TValue;
+begin
+  Exists := call(methodName,args,Result);
+end;
+
+function TDuckImpl.call(methodName : string; args : array of Variant; var Exists : boolean) : TValue;
 begin
   Exists := call(methodName,args,Result);
 end;
@@ -1005,6 +1292,23 @@ begin
   if Result then
   begin
     AResult := cxt.GetType(FOwner.ClassInfo).GetMethod(methodName).Invoke(FOwner,Args);
+  end;
+end;
+
+function TDuckImpl.call(methodName: string; args: array of variant;
+  var AResult: TValue): boolean;
+var
+  cxt : TRTTIContext;
+  vargs : TArray<TValue>;
+  i: Integer;
+begin
+  Result := TRTTI.isMethod(FOwner,methodName);
+  if Result then
+  begin
+    SetLength(vargs, Length(args));
+    for i := low(vargs) to High(vargs) do
+      vargs[i] := TValue.FromVariant(args[i]);
+    AResult := cxt.GetType(FOwner.ClassInfo).GetMethod(methodName).Invoke(FOwner,vargs);
   end;
 end;
 
@@ -1157,7 +1461,7 @@ end;
 
 function TDuckImpl.obj: TObject;
 begin
-  Result := Self;
+  Result := FOwner;
 end;
 
 function TDuckImpl.can(methodName : string) : boolean;
@@ -1165,18 +1469,82 @@ begin
   Result := TRTTI.isMethod(FOwner, methodName);
 end;
 
+function TDuckImpl.can(methodName : string; Params : TArray<TRttiParameter>) : boolean;
+begin
+  Result := TRTTI.isMethod(FOwner, methodName, Params);
+end;
+
+function TDuckImpl.can(methodName : string; Params : TArray<TRttiParameter>; Returns : TRttiType) : boolean;
+begin
+  Result := TRTTI.isMethod(FOwner, methodName, Params, Returns);
+end;
+
 { TDuckHelper }
 
-function TDuckHelper.Duck: IDuck;
+function TDuckHelper.duck: IDuck;
 begin
   Result := TDuckImpl.Create(Self);
 end;
 
+function TDuckHelper.impersonates<Intf> : boolean;
+var
+  bOK : boolean;
+begin
+  bOK := True;
+  TRTTI.eachProperty(TypeInfo(Intf),procedure(prop : TRTTIProperty)
+  begin
+    bOK := bOK and duck.has(prop.Name, prop.ClassType);
+  end);
+  TRTTI.eachMethod(TypeInfo(Intf),procedure(method : TRTTIMethod)
+  begin
+    bOK := bOK and duck.can(method.Name, method.GetParameters, method.ReturnType);
+  end);
+  Result := bOK;
+end;
+
+function TDuckHelper.asa<Intf> : IImpersonated;
+var
+  p : pointer;
+begin
+  System.VarClear(Result);
+  p := @Result;
+  TDuckVarData(p^).VType := DuckVariant.VarType;
+  TDuckVarData(p^).VDuck := duck;
+  TDuckVarData(p^).VIType := TypeInfo(Intf);
+end;
+
 { TDuck }
 
-function TDuck.Duck: IDuck;
+function TDuck.duck: IDuck;
 begin
   Result := TDuckImpl.Create(Self);
+end;
+
+function TDuck.impersonates<Intf> : boolean;
+var
+  bOK : boolean;
+begin
+  bOK := True;
+  TRTTI.eachProperty(TypeInfo(Intf),procedure(prop : TRTTIProperty)
+  begin
+    bOK := bOK and duck.has(prop.Name, prop.ClassType);
+  end);
+  TRTTI.eachMethod(TypeInfo(Intf),procedure(method : TRTTIMethod)
+  begin
+    bOK := bOK and duck.can(method.Name, method.GetParameters, method.ReturnType);
+  end);
+  Result := bOK;
+end;
+
+function TDuck.asA<Intf> : IImpersonated;
+var
+  p : pointer;
+begin
+  System.VarClear(Result);
+  p := @Result;
+  TDuckVarData(p^).VType := DuckVariant.VarType;
+  TDuckVarData(p^).VDuck := duck;
+  TDuckVarData(p^).VIType := TypeInfo(Intf);
 end;
 
 { TSelectorImpl }
@@ -1332,6 +1700,22 @@ begin
   end;
 end;
 
+function TSelectorImpl.call(methodName : string; args : array of Variant; var AResult : TValue) : TArray<TValue>;
+var
+  i,j : integer;
+  vargs : TArray<TValue>;
+begin
+  setLength(vargs,Length(args));
+  for i := low(vargs) to High(vargs) do
+    vargs[i] := TValue.FromVariant(args[i]);
+
+  setLength(Result,FResults.Count);
+  for i := 0 to FResults.Count-1 do
+  begin
+    result[i] := TRTTI.call(FResults.Items[i],methodName, vargs);
+  end;
+end;
+
 function TSelectorImpl.call: TArray<TValue>;
 var
   i : integer;
@@ -1357,6 +1741,23 @@ begin
   end;
 end;
 
+function TSelectorImpl.call(args : array of variant) : TArray<TValue>;
+var
+  i : integer;
+  vargs : TArray<TValue>;
+begin
+  RequireContext;
+  setLength(vargs, Length(args));
+  for i := low(vargs) to high(vargs) do
+    vargs[i] := TValue.FromVariant(args[i]);
+
+  setLength(Result,FResults.Count);
+  for i := 0 to FResults.Count-1 do
+  begin
+    result[i] := TRTTI.call(FResults.Items[i],FContext, vargs);
+  end;
+end;
+
 function TSelectorImpl.can(MethodName: string): ISelector;
 var
   lst : TList<TObject>;
@@ -1367,6 +1768,46 @@ begin
     for i := 0 to FResults.Count-1 do
     begin
       if TRTTI.isMethod(FResults.Items[i],methodName) then
+      begin
+        lst.Add(FResults.Items[i]);
+      end;
+    end;
+    Result := TSelectorImpl.Create(FObject, MethodName, lst);
+  finally
+    lst.Free;
+  end;
+end;
+
+function TSelectorImpl.can(methodName : string; Params : TArray<TRttiParameter>) : ISelector;
+var
+  lst : TList<TObject>;
+  i : integer;
+begin
+  lst := TList<TObject>.Create;
+  try
+    for i := 0 to FResults.Count-1 do
+    begin
+      if TRTTI.isMethod(FResults.Items[i],methodName, Params) then
+      begin
+        lst.Add(FResults.Items[i]);
+      end;
+    end;
+    Result := TSelectorImpl.Create(FObject, MethodName, lst);
+  finally
+    lst.Free;
+  end;
+end;
+
+function TSelectorImpl.can(methodName : string; Params : TArray<TRttiParameter>; Returns : TRttiType) : ISelector;
+var
+  lst : TList<TObject>;
+  i : integer;
+begin
+  lst := TList<TObject>.Create;
+  try
+    for i := 0 to FResults.Count-1 do
+    begin
+      if TRTTI.isMethod(FResults.Items[i],methodName, Params, Returns) then
       begin
         lst.Add(FResults.Items[i]);
       end;
@@ -1871,11 +2312,144 @@ begin
   Self.Value := AValue;
 end;
 
+
+{ TDuckVariantType }
+
+procedure TDuckVariantType.Clear(var V: TVarData);
+begin
+  TDuckVarData(V).VDuck := nil;
+  TDuckVarData(V).VIType := nil;
+end;
+
+procedure TDuckVariantType.Copy(var Dest: TVarData; const Source: TVarData;
+  const Indirect: Boolean);
+begin
+  if not (Indirect and VarDataIsByRef(Source)) then
+  begin
+    TDuckVarData(Dest).VType := VarType;
+    TDuckVarData(Dest).VDuck := TDuckVarData(Source).VDuck;
+    TDuckVarData(Dest).VIType := TDuckVarData(Source).VIType;
+  end else
+    VarDataCopyNoInd(Dest,Source);
+end;
+
+procedure TDuckVariantType.DispInvoke(Dest: PVarData; const Source: TVarData;
+  CallDesc: PCallDesc; Params: Pointer);
+type
+  PParamRec = ^TParamRec;
+  TParamRec = array[0..3] of LongInt;
+  TStringDesc = record
+    BStr: WideString;
+    PStr: PAnsiString;
+  end;
+const
+  CDoMethod    = $01;
+  CPropertyGet = $02;
+  CPropertySet = $04;
+var
+  I, LArgCount: Integer;
+  LIdent: string;
+  LCasedIdent : string;
+  LTemp: TVarData;
+  VarParams : TVarDataArray;
+  Strings: TStringRefList;
+  LDest: PVarData;
+  v : variant;
+  args : TArray<TValue>;
+begin
+  // Grab the identifier
+  LArgCount := CallDesc^.ArgCount;
+  LCasedIdent := AnsiString(PAnsiChar(@CallDesc^.ArgTypes[LArgCount]));
+  LIdent := FixupIdent(LCasedIdent);
+
+  FillChar(Strings, SizeOf(Strings), 0);
+  VarParams := GetDispatchInvokeArgs(CallDesc, Params, Strings, true);
+
+  // What type of invoke is this?
+  case CallDesc^.CallType of
+    CPropertyGet: begin
+      if ((Dest <> nil) and                         // there must be a dest
+              (LArgCount = 0)) then                       // only no args
+      begin
+        v := TRTTI.getValue(TDuckVarData(Source).VDuck.obj,LCasedIdent).AsVariant;
+        if VarIsNull(v) then
+          RaiseDispError;
+        Variant(Dest^) := v;
+      end else
+      begin
+        if not ((Dest <> nil) and                         // there must be a dest
+              (LArgCount = 1)) then
+          RaiseDispError;
+        setLength(args,1);
+        args[0] := TValue.FromVariant(Variant(VarParams[0]));
+        v := TRTTI.getValue(TDuckVarData(Source).VDuck.obj,LCasedIdent,args).AsVariant;
+        if VarIsNull(v) then
+          RaiseDispError;
+        Variant(Dest^) := v;
+      end;
+    end;
+    CPropertySet:
+      if ((Dest = nil) and                         // there must be a dest
+          (LArgCount = 1)) then
+      begin
+        setLength(args,1);
+        args[0] := TValue.FromVariant(Variant(VarParams[0]));
+        TRTTI.setValue(TDuckVarData(Source).VDuck.obj,LCasedIdent,args,TValue.FromVariant(Variant(VarParams[0])));
+      end else
+      begin
+        RaiseDispError;
+        (*if not ((Dest = nil) {and                         // there must be a dest
+              (LArgCount = 2))} then
+          RaiseDispError;
+        setLength(args,LArgCount);
+        for i := 0 to LArgCount-1 do
+          args[i] := TValue.FromVariant((Variant(VarParams[i]));
+        TDuckVarData(Source).VDuck.setTo(LCasedIdent,TValue.FromVariant(Variant(VarParams[0]));*)
+      end;
+  else
+    if ((Dest <> nil) and                         // there must be a dest
+        (LArgCount = 0)) then                       // only no args
+    begin
+      v := NULL;
+      setLength(args,0);
+      if TRTTI.isProperty(TDuckVarData(Source).VDuck.obj,LCasedIdent) then
+        v := TRTTI.getValue(TDuckVarData(Source).VDuck.obj,LCasedIdent).AsVariant
+      else if TRTTI.isMethod(TDuckVarData(Source).VDuck.obj,LCasedIdent) then
+        v := TRTTI.call(TDuckVarData(Source).VDuck.obj,LCasedIdent, args).AsVariant;
+
+      if VarIsNull(v) then
+          RaiseDispError;
+        Variant(Dest^) := v;
+    end else
+    begin
+      setLength(args,LArgCount);
+      for i := 0 to LArgCount-1 do
+        args[i] := TValue.FromVariant(Variant(VarParams[i]));
+      v := TRTTI.call(TDuckVarData(Source).VDuck.obj,LCasedIdent,args).AsVariant;
+
+      Variant(Dest^) := v;
+      exit;
+    end;
+  end;
+
+  for I := 0 to Length(Strings) - 1 do
+  begin
+    if Pointer(Strings[I].Wide) = nil then
+      Break;
+    if Strings[I].Ansi <> nil then
+      Strings[I].Ansi^ := AnsiString(Strings[I].Wide)
+    else if Strings[I].Unicode <> nil then
+      Strings[I].Unicode^ := UnicodeString(Strings[I].Wide)
+  end;
+end;
+
 initialization
   Event := TEvent.Create;
   InitializeEnumProps;
+  DuckVariant := TDuckVariantType.Create;
 
 finalization
   Event.Free;
+  FreeAndNil(DuckVariant);
 
 end.
