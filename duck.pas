@@ -90,6 +90,9 @@ unit duck;
 // *****************************************************************************
 //      RELEASE NOTES
 // *****************************************************************************
+//   2012-06-14 : R4 Jason Southwell
+//                 * implemented duck<I> overload to allow duck typing to a
+//                   specified interface and assume the implementation.
 //   2012-02-17 : R3 Jason Southwell
 //                 + Added asA<I> to return a custom variant wrapper around the
 //                   object allowing it to be called as though it were the
