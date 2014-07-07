@@ -37,7 +37,7 @@ object Form1: TForm1
     TabOrder = 0
   end
   object Edit1: TEdit
-    Left = 448
+    Left = 424
     Top = 128
     Width = 121
     Height = 21
@@ -89,7 +89,7 @@ object Form1: TForm1
     OnClick = Button3Click
   end
   object Button4: TButton
-    Left = 448
+    Left = 424
     Top = 176
     Width = 75
     Height = 25
@@ -98,13 +98,31 @@ object Form1: TForm1
     OnClick = Button4Click
   end
   object Button5: TButton
-    Left = 448
+    Left = 424
     Top = 216
     Width = 121
     Height = 25
     Caption = 'Add Impersonate'
     TabOrder = 8
     OnClick = Button5Click
+  end
+  object Button6: TButton
+    Left = 424
+    Top = 256
+    Width = 121
+    Height = 25
+    Caption = 'Add Soft Interface'
+    TabOrder = 9
+    OnClick = Button6Click
+  end
+  object Button7: TButton
+    Left = 551
+    Top = 216
+    Width = 65
+    Height = 25
+    Caption = 'Float'
+    TabOrder = 10
+    OnClick = Button7Click
   end
   object Timer1: TTimer
     Enabled = False
