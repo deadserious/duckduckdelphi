@@ -21,7 +21,7 @@ type
 
   TMyAdder = class(TObject) // does not indicate support for IAdder or IFloatAdder but implements both
   public
-    //function Add(A,B : integer) : integer; overload;
+    function Add(A,B : integer) : integer; overload;
     function add(A,B : single) : single; overload;
   end;
 
@@ -63,10 +63,10 @@ implementation
 
 { TMyAdder }
 
-{function TMyAdder.Add(A, B: integer): integer;
+function TMyAdder.Add(A, B: integer): integer;
 begin
   Result := A+B;
-end;}
+end;
 
 function TMyAdder.Add(A, B: single): single;
 begin
