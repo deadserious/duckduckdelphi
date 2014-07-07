@@ -1,0 +1,48 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{F7FCCF65-2ED7-4D8A-8FD2-28E00F6AB383}</ProjectGuid>
+    </PropertyGroup>
+    <ItemGroup>
+        <Projects Include="DuckTest.dproj">
+            <Dependencies/>
+        </Projects>
+        <Projects Include="..\fmxtest\FMXTest.dproj">
+            <Dependencies/>
+        </Projects>
+    </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Default.Personality.12</Borland.Personality>
+        <Borland.ProjectType/>
+        <BorlandProject>
+            <Default.Personality/>
+        </BorlandProject>
+    </ProjectExtensions>
+    <Target Name="DuckTest">
+        <MSBuild Projects="DuckTest.dproj"/>
+    </Target>
+    <Target Name="DuckTest:Clean">
+        <MSBuild Projects="DuckTest.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="DuckTest:Make">
+        <MSBuild Projects="DuckTest.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="FMXTest">
+        <MSBuild Projects="..\fmxtest\FMXTest.dproj"/>
+    </Target>
+    <Target Name="FMXTest:Clean">
+        <MSBuild Projects="..\fmxtest\FMXTest.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="FMXTest:Make">
+        <MSBuild Projects="..\fmxtest\FMXTest.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="Build">
+        <CallTarget Targets="DuckTest;FMXTest"/>
+    </Target>
+    <Target Name="Clean">
+        <CallTarget Targets="DuckTest:Clean;FMXTest:Clean"/>
+    </Target>
+    <Target Name="Make">
+        <CallTarget Targets="DuckTest:Make;FMXTest:Make"/>
+    </Target>
+    <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
+</Project>

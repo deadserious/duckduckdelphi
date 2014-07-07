@@ -1,0 +1,125 @@
+object Form1: TForm1
+  Left = 0
+  Top = 0
+  Caption = 'Form1'
+  ClientHeight = 359
+  ClientWidth = 598
+  FormFactor.Width = 320
+  FormFactor.Height = 480
+  FormFactor.Devices = [Desktop]
+  DesignerMobile = True
+  DesignerWidth = 598
+  DesignerHeight = 384
+  DesignerDeviceName = 'Google Nexus 4'
+  DesignerOrientation = 3
+  DesignerOSVersion = ''
+  object Edit1: TEdit
+    Touch.InteractiveGestures = [LongTap, DoubleTap]
+    TabOrder = 1
+    Position.X = 48.000000000000000000
+    Position.Y = 16.000000000000000000
+    Width = 129.000000000000000000
+    Height = 32.000000000000000000
+  end
+  object Memo1: TMemo
+    Touch.InteractiveGestures = [Pan, LongTap, DoubleTap]
+    Height = 129.000000000000000000
+    Position.X = 48.000000000000000000
+    Position.Y = 56.000000000000000000
+    TabOrder = 2
+    Width = 129.000000000000000000
+  end
+  object btnAdd: TButton
+    Height = 44.000000000000000000
+    Position.X = 200.000000000000000000
+    Position.Y = 32.000000000000000000
+    TabOrder = 9
+    Text = 'Add'
+    Width = 257.000000000000000000
+    OnClick = btnAddClick
+  end
+  object btnImper: TButton
+    Height = 44.000000000000000000
+    Position.X = 200.000000000000000000
+    Position.Y = 80.000000000000000000
+    TabOrder = 5
+    Text = 'Add Impersonate'
+    Width = 169.000000000000000000
+    OnClick = btnImperClick
+  end
+  object btnImprFloat: TButton
+    Height = 44.000000000000000000
+    Position.X = 376.000000000000000000
+    Position.Y = 80.000000000000000000
+    TabOrder = 4
+    Text = 'Float'
+    Width = 81.000000000000000000
+    OnClick = btnImprFloatClick
+  end
+  object btnSoft: TButton
+    Height = 44.000000000000000000
+    Position.X = 200.000000000000000000
+    Position.Y = 128.000000000000000000
+    TabOrder = 3
+    Text = 'Add Soft Interface'
+    Width = 257.000000000000000000
+    OnClick = btnSoftClick
+  end
+  object btnFont: TButton
+    Height = 44.000000000000000000
+    Position.X = 48.000000000000000000
+    Position.Y = 192.000000000000000000
+    TabOrder = 8
+    Text = 'Change Font'
+    Width = 129.000000000000000000
+    OnClick = btnFontClick
+  end
+  object btnHide: TButton
+    Height = 44.000000000000000000
+    Position.X = 48.000000000000000000
+    Position.Y = 240.000000000000000000
+    TabOrder = 7
+    Text = 'Hide for 3s'
+    Width = 129.000000000000000000
+    OnClick = btnHideClick
+  end
+  object tmrHide: TTimer
+    Interval = 3000
+    OnTimer = tmrHideTimer
+    Left = 272
+    Top = 192
+  end
+  object btnClear: TButton
+    Height = 44.000000000000000000
+    Position.X = 48.000000000000000000
+    Position.Y = 288.000000000000000000
+    TabOrder = 6
+    Text = 'Clear All'
+    Width = 129.000000000000000000
+    OnClick = btnClearClick
+  end
+  object CheckBox1: TCheckBox
+    Height = 23.000000000000000000
+    Position.X = 200.000000000000000000
+    Position.Y = 192.000000000000000000
+    TabOrder = 13
+    Text = 'Add this Text To All'
+    Width = 257.000000000000000000
+    OnChange = CheckBox1Change
+  end
+  object RadioButton1: TRadioButton
+    Height = 23.000000000000000000
+    Position.X = 200.000000000000000000
+    Position.Y = 296.000000000000000000
+    TabOrder = 14
+    Text = 'RadioButton1'
+    Width = 120.000000000000000000
+  end
+  object Label1: TLabel
+    Height = 23.000000000000000000
+    Position.X = 208.000000000000000000
+    Position.Y = 248.000000000000000000
+    Text = 'Label1'
+    Width = 82.000000000000000000
+  end
+end
