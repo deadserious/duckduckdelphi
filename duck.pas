@@ -90,6 +90,15 @@ unit duck;
 // *****************************************************************************
 //      RELEASE NOTES
 // *****************************************************************************
+//   2014-07-07 : R6 Jason Southwell
+//                 + XE6 & AppMethod Support
+//                 + Firemonkey Desktop & Mobile Support
+//                 + Overloaded Method support
+//                 * Minor Performance Improvements
+//                 * Several bug fixes
+//   2012-06-14 : R4 Jason Southwell
+//                 * implemented duck<I> overload to allow duck typing to a
+//                   specified interface and assume the implementation.
 //   2012-02-17 : R3 Jason Southwell
 //                 + Added asA<I> to return a custom variant wrapper around the
 //                   object allowing it to be called as though it were the
@@ -164,8 +173,12 @@ interface
 uses System.SysUtils, System.Classes, System.Types, System.Rtti, System.TypInfo,
   System.Generics.Collections, System.Variants;
 
+{$SCOPEDENUMS ON}
+
 type
   TNotifyReference = TProc<TObject>;
+
+  PInterface = ^IInterface;
 
   IImpersonated = Variant;
 
@@ -242,6 +255,8 @@ type
     ///	  </para>
     ///	</remarks>
     class function get<T>(obj: TObject; const PropertyName: string) : T; overload; static;
+
+    class function field<T>(obj: TObject; const FieldName : string) : T; static;
 
     ///	<summary>
     ///	  Attempts to return a typed value from the specifed property on the
@@ -374,9 +389,10 @@ type
     destructor Destroy; override;
 
     function From<TEvent, TReference>(proc: TReference): TEvent;
-    procedure Release<TEvent>(var event : TEvent);
+    procedure ReleaseAndNil<TEvent>(var event : TEvent);
+    procedure Release<TEvent>(event : TEvent);
     function Notify(proc : TNotifyReference) : TNotifyEvent; virtual;
-    procedure NotifyRelease(var event : TNotifyEvent); virtual;
+    procedure NotifyRelease(event : TNotifyEvent); virtual;
   end;
 
   TPropValue = record
@@ -395,7 +411,7 @@ type
 	  function can(methodName : string; Params : TArray<TRttiParameter>) : ISelector; overload;
 	  function can(methodName : string; Params : TArray<TRttiParameter>; Returns : TRttiType) : ISelector; overload;
     function isa(ClassType : TClass) : ISelector;
-    function on(PropertyName : string) : ISelector;
+    function &on(PropertyName : string) : ISelector;
     function first(Cnt : integer) : ISelector; overload;
     function first : ISelector; overload;
     function last(Cnt : integer) : ISelector; overload;
@@ -446,6 +462,25 @@ type
     function filter(method : TFunc<TObject,boolean>) : ISelector;
   end;
 
+  IDuck = interface;
+
+  TInterceptBeforeFunc = reference to procedure(Args : TArray<TValue>; var Return : TValue; var Continue : boolean);
+  TInterceptAfterFunc = reference to procedure(Args : TArray<TValue>; var Return : TValue);
+  TInterceptBeforeProc = reference to procedure(Args : TArray<TValue>; var Continue : boolean);
+  TInterceptAfterProc = reference to procedure(Args : TArray<TValue>);
+  TInterceptExceptionProc = reference to procedure(E : Exception; Args : TArray<TValue>; var Return : TValue; var RaiseException : boolean);
+  IIntercept = interface
+    function before(proc : TInterceptBeforeProc) : IIntercept; overload;
+    function before(proc : TInterceptAfterProc) : IIntercept; overload;
+    function before(proc : TInterceptBeforeFunc) : IIntercept; overload;
+    function before(proc : TInterceptAfterFunc) : IIntercept; overload;
+    function after(proc : TInterceptAfterProc) : IIntercept; overload;
+    function after(proc : TInterceptAfterFunc) : IIntercept; overload;
+    function exception(proc : TInterceptExceptionProc) : IIntercept;
+    function abort : IIntercept;
+    function skip : IIntercept;
+  end;
+
   IDuck = interface
     procedure setTo(propertyName : string; Value : TValue); overload;
     procedure setTo(NameValues : TArray<TPropValue>); overload;
@@ -476,22 +511,33 @@ type
 
     function this : ISelector;
     function obj : TObject;
+    function intercept(methodName : string) : IIntercept;
+  end;
+
+  TSoftInterface<I: IInterface> = class(TVirtualInterface)
+  private
+    FSource : TObject;
+  public
+    constructor Create(Source : TObject);
+    procedure DoInvoke(Method : TRttiMethod; const Args : TArray<TValue>; out Result : TValue);
   end;
 
   TDuckHelper = class helper for TObject
   public
-    function duck : IDuck;
+    function duck : IDuck; overload;
     // this should be under IDuck, but interfaces don't currently support generic methods.
     function impersonates<Intf> : boolean;
     function asA<Intf> : IImpersonated;
+    function duck<I : IInterface> : TSoftInterface<I>; overload;
   end;
 
   TDuck = class(TObject)
   public
-    function duck : IDuck;
+    function duck : IDuck; overload;
     // this should be under IDuck, but interfaces don't currently support generic methods.
     function impersonates<Intf> : boolean;
     function asA<Intf> : IImpersonated;
+    function duck<I : IInterface> : TSoftInterface<I>; overload;
   end;
 
   TDuckVarData = packed record
@@ -505,7 +551,7 @@ type
 type
   TDuckVariantType = class(TInvokeableVariantType)
   protected
-    procedure DispInvoke(Dest: PVarData; const Source: TVarData;
+    procedure DispInvoke(Dest: PVarData; [Ref] const Source: TVarData;
       CallDesc: PCallDesc; Params: Pointer); override;
   public
     procedure Clear(var V: TVarData); override;
@@ -534,6 +580,9 @@ resourcestring
 
 implementation
 
+uses
+  System.SysConst;
+
 type
   TSelectorImpl = class(TInterfacedObject, ISelector)
   private
@@ -555,7 +604,7 @@ type
 	  function can(methodName : string; Params : TArray<TRttiParameter>) : ISelector; overload;
 	  function can(methodName : string; Params : TArray<TRttiParameter>; Returns : TRttiType) : ISelector; overload;
     function isa(ClassType : TClass) : ISelector;
-    function on(PropertyName : string) : ISelector;
+    function &on(PropertyName : string) : ISelector;
     function first(Cnt : integer) : ISelector; overload;
     function first : ISelector; overload;
     function last(Cnt : integer) : ISelector; overload;
@@ -635,12 +684,63 @@ type
     function call(methodName : string; var AResult : TValue) : boolean; overload;
     function call(methodName : string; args : TArray<TValue>; var AResult : TValue) : boolean; overload;
     function call(methodName : string; args : array of Variant; var AResult : TValue) : boolean; overload;
+    function intercept(methodName: string): IIntercept;
     function obj : TObject;
     function all : ISelector;
     function props : ISelector;
     function related : ISelector;
 
     function this : ISelector;
+  end;
+
+  TInterceptImpl = class(TInterfacedObject, IIntercept)
+  type
+    TInterceptInfo = class
+    private
+      FImpl: TMethodImplementation;
+      FOriginalCode: Pointer;
+      FProxyCode: Pointer;
+      FMethod: TRttiMethod;
+    public
+      constructor Create(AOriginalCode: Pointer; AMethod: TRttiMethod;
+        const ACallback: TMethodImplementationCallback);
+      destructor Destroy; override;
+      property OriginalCode: Pointer read FOriginalCode;
+      property ProxyCode: Pointer read FProxyCode;
+      property Method: TRttiMethod read FMethod;
+    end;
+  private
+    FContext: TRttiContext;
+    FDuck : IDuck;
+    FDoBeforeFunc : TInterceptBeforeFunc;
+    FDoBeforeSimpleFunc : TInterceptAfterFunc;
+    FDoBefore : TInterceptBeforeProc;
+    FDoBeforeSimple : TInterceptAfterProc;
+    FDoAfter : TInterceptAfterProc;
+    FDoAfterFunc : TInterceptAfterFunc;
+    FDoExcept : TInterceptExceptionProc;
+    FObject : TObject;
+    FMethodName : string;
+    FImplementationCallback: TMethodImplementationCallback;
+    FOriginalClass: TClass;
+    FIntercept: TInterceptInfo;
+    FProxyClassData: Pointer;
+    FProxyClass: TClass;
+    procedure RawCallback(UserData: Pointer; const Args: TArray<TValue>;
+      out Result: TValue);
+  public
+    constructor Create(ADuck : IDuck; AObject : TObject; AMethodName : string);
+    destructor Destroy; override;
+
+    function before(proc : TInterceptBeforeProc) : IIntercept; overload;
+    function before(proc : TInterceptAfterProc) : IIntercept; overload;
+    function before(proc : TInterceptBeforeFunc) : IIntercept; overload;
+    function before(proc : TInterceptAfterFunc) : IIntercept; overload;
+    function after(proc : TInterceptAfterProc) : IIntercept; overload;
+    function after(proc : TInterceptAfterFunc) : IIntercept; overload;
+    function exception(proc : TInterceptExceptionProc) : IIntercept;
+    function abort : IIntercept;
+    function skip : IIntercept;
   end;
 
 var
@@ -704,20 +804,70 @@ begin
   RegisterPropertyEnumerator('Rows','RowCount');
 end;
 
+{ TSoftInterface<I> }
+
+constructor  TSoftInterface<I>.Create(Source : TObject);
+begin
+  FSource := Source;
+  inherited Create(TypeInfo(I), DoInvoke);
+end;
+
+procedure TSoftInterface<I>.DoInvoke(Method: TRttiMethod;
+  const Args: TArray<TValue>; out Result: TValue);
+var
+  ary : TArray<TValue>;
+  i : integer;
+begin
+  SetLength(ary,Length(Args)-1);
+  for i := 1 to length(args)-1 do
+    ary[i-1] := Args[i];
+
+  Result := TRTTI.call(FSource,Method.Name,ary);
+end;
 
 { TRTTI }
 
 class function TRTTI.call(obj: TObject; const MethodName: string; args: TArray<TValue>): TValue;
 var
-  cxt : TRTTIContext;
-  meth : TRttiMethod;
+  vResult : TValue;
+  bCalled : boolean;
 begin
   Result := nil;
-  meth := cxt.GetType(obj.ClassInfo).GetMethod(MethodName);
-  if meth <> nil then
+  bCalled := False;
+  vResult := TValue.Empty;
+  TRTTI.eachMethod(obj,function(m : TRTTIMethod) : boolean
+  var
+    params : TArray<TRTTIParameter>;
+    i : integer;
+    b : boolean;
   begin
-    Result := meth.Invoke(obj,args);
-  end;
+    Result := True;
+    if (CompareText(m.Name,MethodName)=0) then
+    begin
+      params :=  m.GetParameters;
+      if length(params) = length(args) then
+      begin
+        b := True;
+        for i := 0 to Length(args)-1 do
+        begin
+          if args[i].TypeInfo^.Kind <> params[i].ParamType.TypeKind then
+          begin
+            b := false;
+            break;
+          end;
+        end;
+        if b then
+        begin
+          vResult := m.Invoke(obj,args);
+          Result := false;
+          bCalled := True;
+        end;
+      end;
+    end;
+  end);
+  if not bCalled then
+    raise EMethodNotFound.Create('Could not find method "'+MethodName+'" on Object of class "'+obj.ClassName+'"');
+  Result := vResult;
 end;
 
 class function TRTTI.get<T>(obj: TObject; const PropertyName: string): T;
@@ -785,6 +935,19 @@ end;
 class function TRTTI.exists(pti : PTypeInfo; const Name: string): boolean;
 begin
   Result := isProperty(pti, Name) or isMethod(pti, Name);
+end;
+
+class function TRTTI.field<T>(obj: TObject; const FieldName: string): T;
+var
+  cxt : TRTTIContext;
+  prop : TRttiField;
+begin
+  Result := T(nil);
+  prop := cxt.GetType(obj.ClassInfo).GetField(FieldName);
+  if prop <> nil then
+  begin
+    Result := prop.GetValue(obj).AsType<T>;
+  end;
 end;
 
 class function TRTTI.isProperty(obj: TObject; const PropertyName: string): boolean;
@@ -926,10 +1089,17 @@ end;
 class function TRTTI.isMethod(obj: TObject; const MethodName: string; Params : TArray<TRTTIParameter>; Returns : TRTTIType) : boolean;
 var
   cxt : TRTTIContext;
-  m : TRTTIMethod;
+  b : boolean;
 begin
-  m := cxt.GetType(obj.ClassInfo).GetMethod(MethodName);
-  Result := (m <> nil) and (Returns = m.ReturnType) and isSame(m.GetParameters,Params);
+  b := False;
+  TRTTI.eachMethod(obj,
+    function(meth : TRTTIMethod) : boolean
+    begin
+      b := (meth <> nil) and (Returns = meth.ReturnType) and isSame(meth.GetParameters,Params);
+      Result := not b;
+    end
+  );
+  result := b;
 end;
 
 class function TRTTI.isMethod(pti : PTypeInfo; const MethodName: string; Params : TArray<TRTTIParameter>; Returns : TRTTIType) : boolean;
@@ -1140,8 +1310,15 @@ type
   PPVtable = ^PVtable;
 begin
   // 3 is offset of Invoke, after QI, AddRef, Release
-  TMethod(evt).Code := PPVtable(ameth)^^[3];
-  TMethod(evt).Data := Pointer(ameth);
+  if Pointer(ameth) <> nil then
+  begin
+    TMethod(evt).Code := PPVtable(ameth)^^[3];
+    TMethod(evt).Data := Pointer(ameth);
+  end else
+  begin
+    TMethod(evt).Code := nil;
+    TMethod(evt).Data := nil;
+  end;
 end;
 
 procedure TEvent.ParseMethod(const meth; var p1, p2 : Pointer);
@@ -1156,8 +1333,6 @@ begin
 end;
 
 function TEvent.From<TEvent, TReference>(proc: TReference): TEvent;
-type
-  PInterface = ^IInterface;
 var
   intf : PInterface;
   p1, p2 : Pointer;
@@ -1168,13 +1343,19 @@ begin
     intf := PInterface(@proc);
 
     ParseMethod(Result, p1, p2);
-    FEvents.Add(TPair<Pointer,Pointer>.Create(p1, p2),intf^);
+    FEvents.AddOrSetValue(TPair<Pointer,Pointer>.Create(p1, p2),intf^);
   finally
     TMonitor.Exit(Self);
   end;
 end;
 
-procedure TEvent.Release<TEvent>(var event: TEvent);
+procedure TEvent.ReleaseAndNil<TEvent>(var event : TEvent);
+begin
+  Release<TEvent>(event);
+  event := TEvent(nil);
+end;
+
+procedure TEvent.Release<TEvent>(event: TEvent);
 type
   PInterface = ^IInterface;
 var
@@ -1188,15 +1369,14 @@ begin
   finally
     TMonitor.Exit(Self);
   end;
-  event := TEvent(nil);
 end;
 
 function TEvent.Notify(proc: TNotifyReference): TNotifyEvent;
 begin
-  Result := From<TNotifyEvent, TNotifyReference>(proc);
+  Result := From<TNotifyEvent, TNotifyReference>(proc)
 end;
 
-procedure TEvent.NotifyRelease(var event: TNotifyEvent);
+procedure TEvent.NotifyRelease(event: TNotifyEvent);
 begin
   Release<TNotifyEvent>(event);
 end;
@@ -1248,11 +1428,17 @@ begin
   TRTTI.eachProperty(AOwner,procedure(prop : TRTTIProperty)
   begin
     case prop.PropertyType.TypeKind of
-      TTypeKind.tkClass,
-      TTypeKind.tkClassRef:
+      TTypeKind.tkClass:
         List.Add(prop.GetValue(AOwner).AsObject);
+      {TTypeKind.tkClassRef:
+        List.Add(prop.GetValue(AOwner).AsClass);} // TODO: support class properties?
     end;
   end);
+end;
+
+function TDuckImpl.intercept(methodName: string): IIntercept;
+begin
+  Result := TInterceptImpl.Create(Self, FOwner, methodName);
 end;
 
 function TDuckImpl.call(methodName: string; args: TArray<TValue>): TValue;
@@ -1301,6 +1487,7 @@ var
   cxt : TRTTIContext;
   vargs : TArray<TValue>;
   i: Integer;
+  vResult : TValue;
 begin
   Result := TRTTI.isMethod(FOwner,methodName);
   if Result then
@@ -1308,8 +1495,42 @@ begin
     SetLength(vargs, Length(args));
     for i := low(vargs) to High(vargs) do
       vargs[i] := TValue.FromVariant(args[i]);
-    AResult := cxt.GetType(FOwner.ClassInfo).GetMethod(methodName).Invoke(FOwner,vargs);
+
+    vResult := TValue.Empty;
+    TRTTI.eachMethod(FOwner,
+      function(meth : TRTTIMethod) : boolean
+      var
+        ary : TArray<TRTTIParameter>;
+        b : boolean;
+        i : integer;
+      begin
+        result := true;
+        if SameText(meth.Name, methodName) then
+        begin
+          ary := meth.GetParameters;
+          if length(ary) = Length(vargs) then
+          begin
+            b := True;
+            for i := 0 to length(ary)-1 do
+            begin
+              if ary[i].ParamType.TypeKind <> vargs[i].Kind then
+              begin
+                b := false;
+                break;
+              end;
+            end;
+            if b then
+            begin
+              vResult := meth.Invoke(FOwner,vargs);
+                result := false;
+            end;
+          end;
+        end;
+      end
+    );
   end;
+  AResult := vResult;
+  result := not vResult.IsEmpty;
 end;
 
 function TDuckImpl.call(methodName: string; var AResult: TValue): boolean;
@@ -1513,6 +1734,12 @@ begin
   TDuckVarData(p^).VIType := TypeInfo(Intf);
 end;
 
+function TDuckHelper.duck<I> : TSoftInterface<I>;
+begin
+  Result := TSoftInterface<I>.Create(Self);
+end;
+
+
 { TDuck }
 
 function TDuck.duck: IDuck;
@@ -1547,6 +1774,14 @@ begin
   TDuckVarData(p^).VIType := TypeInfo(Intf);
 end;
 
+function TDuck.duck<I> : TSoftInterface<I>;
+var
+  Intf : IInterface;
+begin
+  Result := TSoftInterface<I>.Create(Self);
+end;
+
+
 { TSelectorImpl }
 
 constructor TSelectorImpl.Create(AObject: TObject; AContext : string; AResults : TList<TObject>);
@@ -1559,8 +1794,11 @@ begin
   FResults := TList<TObject>.Create;
   for i := 0 to AResults.Count-1 do
   begin
-    if not FResults.Contains(AResults[i]) then
-      FResults.Add(AResults[i]);
+    if AResults[i] <> nil then
+    begin
+      if not FResults.Contains(AResults[i]) then
+        FResults.Add(AResults[i]);
+    end;
   end;
 end;
 
@@ -1725,7 +1963,14 @@ begin
   setLength(Result,FResults.Count);
   for i := 0 to FResults.Count-1 do
   begin
-    result[i] := TRTTI.call(FResults.Items[i],FContext, args);
+    try
+      result[i] := TRTTI.call(FResults.Items[i],FContext, args);
+    except
+      on e: EMethodNotFound do
+        Continue
+      else
+        raise;
+    end;
   end;
 end;
 
@@ -2333,15 +2578,11 @@ begin
     VarDataCopyNoInd(Dest,Source);
 end;
 
-procedure TDuckVariantType.DispInvoke(Dest: PVarData; const Source: TVarData;
+procedure TDuckVariantType.DispInvoke(Dest: PVarData; [Ref] const Source: TVarData;
   CallDesc: PCallDesc; Params: Pointer);
 type
   PParamRec = ^TParamRec;
   TParamRec = array[0..3] of LongInt;
-  TStringDesc = record
-    BStr: WideString;
-    PStr: PAnsiString;
-  end;
 const
   CDoMethod    = $01;
   CPropertyGet = $02;
@@ -2356,10 +2597,12 @@ var
   LDest: PVarData;
   v : variant;
   args : TArray<TValue>;
+  name : PByteArray;
 begin
   // Grab the identifier
   LArgCount := CallDesc^.ArgCount;
-  LCasedIdent := AnsiString(PAnsiChar(@CallDesc^.ArgTypes[LArgCount]));
+  name := @CallDesc^.ArgTypes[LArgCount];
+  LCasedIdent := String(PChar(TEncoding.Convert(TEncoding.ANSI,TEncoding.Unicode,name^)));
   LIdent := FixupIdent(LCasedIdent);
 
   FillChar(Strings, SizeOf(Strings), 0);
@@ -2437,10 +2680,346 @@ begin
     if Pointer(Strings[I].Wide) = nil then
       Break;
     if Strings[I].Ansi <> nil then
-      Strings[I].Ansi^ := AnsiString(Strings[I].Wide)
+      Strings[I].Ansi^ := String(Strings[I].Wide)
     else if Strings[I].Unicode <> nil then
       Strings[I].Unicode^ := UnicodeString(Strings[I].Wide)
   end;
+end;
+
+(*{ TInterceptorImpl }
+
+class constructor TInterceptorImpl.Create;
+begin
+  FInterceptors := TList<TVirtualMethodInterceptor>.Create;
+end;
+
+constructor TInterceptorImpl.Create(AObject: TObject; AMethod: string);
+begin
+  inherited Create;
+  FMethod := AMethod;
+  FObject := AObject;
+end;
+
+destructor TInterceptorImpl.Destroy;
+begin
+
+  inherited;
+end;
+
+class destructor TInterceptorImpl.Destroy;
+var
+  i: Integer;
+begin
+  for i := 0 to FInterceptors.Count-1 do
+    FInterceptors[i].Free;
+  FInterceptors.Free;
+
+end;
+
+function TInterceptorImpl.doAfter(proc: TInterceptProc): IInterceptor;
+var
+  vmi : TVirtualMethodInterceptor;
+begin
+  Result := Self;
+  vmi := TVirtualMethodInterceptor.Create(FClass);
+  vmi.OnAfter := procedure(Instance: TObject; Method: TRttiMethod; const Args: TArray<TValue>; var Result: TValue)
+  begin
+    proc(Instance, Args, Result);
+  end;
+  FInterceptors.Add(vmi);
+end;
+
+function TInterceptorImpl.doBefore(proc: TInterceptProc): IInterceptor;
+var
+  vmi : TVirtualMethodInterceptor;
+begin
+  Result := Self;
+  vmi := TVirtualMethodInterceptor.Create(FClass);
+  vmi.OnBefore := procedure(Instance: TObject; Method: TRttiMethod; const Args: TArray<TValue>; out DoInvoke: Boolean; out Result: TValue)
+  begin
+    DoInvoke := proc(Instance, Args, Result);
+  end;
+  FInterceptors.Add(vmi);
+end;
+
+function TInterceptorImpl.doOnException(proc: TInterceptExProc): IInterceptor;
+var
+  vmi : TVirtualMethodInterceptor;
+begin
+  Result := Self;
+  vmi := TVirtualMethodInterceptor.Create(FClass);
+  vmi.OnException := procedure(Instance: TObject; Method: TRttiMethod; const Args: TArray<TValue>; out RaiseException: Boolean; TheException: Exception; out Result: TValue)
+  begin
+    RaiseException := proc(Instance, TheException, Args, Result);
+  end;
+  FInterceptors.Add(TPair<TClass, String>.Create(FClass, FMethod),vmi);
+end;
+*)
+
+{ TInterceptImpl }
+
+function TInterceptImpl.abort: IIntercept;
+begin
+  FDoBefore := procedure(Args : TArray<TValue>; var Continue : boolean)
+  begin
+    Abort;
+  end;
+  Result := Self;
+end;
+
+type
+
+  PProxyClassData = ^TProxyClassData;
+  TProxyClassData = record
+    SelfPtr: TClass;
+    IntfTable: Pointer;
+    AutoTable: Pointer;
+    InitTable: Pointer;
+    TypeInfo: PTypeInfo;
+    FieldTable: Pointer;
+    MethodTable: Pointer;
+    DynamicTable: Pointer;
+    ClassName: Pointer;
+    InstanceSize: Integer;
+    Parent: ^TClass;
+  end;
+
+function TInterceptImpl.after(proc: TInterceptAfterProc): IIntercept;
+begin
+  FDoAfter := proc;
+  result := self;
+end;
+
+function TInterceptImpl.before(proc: TInterceptBeforeProc): IIntercept;
+begin
+  FDoBefore := proc;
+  result := self;
+end;
+
+function TInterceptImpl.before(proc: TInterceptAfterProc): IIntercept;
+begin
+  FDoBeforeSimple := proc;
+  result := self;
+end;
+
+constructor TInterceptImpl.Create(ADuck: IDuck; AObject: TObject;
+  AMethodName: string);
+{$POINTERMATH ON}
+type
+  PVtable = ^Pointer;
+{$POINTERMATH OFF}
+var
+  t: TRttiType;
+  m: TRttiMethod;
+  size, classOfs: Integer;
+begin
+  inherited Create;
+  FDuck := ADuck;
+  FObject := AObject;
+  FMethodName := AMethodName;
+
+  FOriginalClass := AObject.ClassType;
+  FImplementationCallback := RawCallback;
+
+  t := FContext.GetType(FOriginalClass);
+  size := (t as TRttiInstanceType).VmtSize;
+  classOfs := -vmtSelfPtr;
+  FProxyClassData := AllocMem(size);
+  FProxyClass := TClass(PByte(FProxyClassData) + classOfs);
+  Move((PByte(FOriginalClass) - classOfs)^, FProxyClassData^, size);
+  PProxyClassData(FProxyClassData)^.Parent := @FOriginalClass;
+  PProxyClassData(FProxyClassData)^.SelfPtr := FProxyClass;
+
+  m := t.GetMethod(FMethodName);
+  if (m.DispatchKind = dkVtable) and (m.MethodKind in [mkFunction, mkProcedure]) and m.HasExtendedInfo then
+    FIntercept := TInterceptInfo.Create(PVtable(FOriginalClass)[m.VirtualIndex], m, FImplementationCallback)
+  else
+    raise System.SysUtils.Exception.Create('Specified Method cannot be intercepted.');
+
+  PVtable(FProxyClass)[m.VirtualIndex] := FIntercept.ProxyCode;
+
+  if PPointer(FObject)^ <> FOriginalClass then
+    raise EInvalidCast.CreateRes(@SInvalidCast);
+  PPointer(FObject)^ := FProxyClass;
+
+end;
+
+destructor TInterceptImpl.Destroy;
+begin
+  if PPointer(FObject)^ <> FProxyClass then
+    raise EInvalidCast.CreateRes(@SInvalidCast);
+  PPointer(FObject)^ := FOriginalClass;
+  FreeMem(FProxyClassData);
+  inherited;
+end;
+
+function TInterceptImpl.exception(proc: TInterceptExceptionProc): IIntercept;
+begin
+
+end;
+
+procedure TInterceptImpl.RawCallback(UserData: Pointer; const Args: TArray<TValue>;
+  out Result: TValue);
+  procedure PascalShiftSelfLast(cc: TCallConv);
+{$IFDEF CPUX86}
+  var
+    receiver: array[1..SizeOf(TValue)] of Byte;
+  begin
+    if cc <> ccPascal then Exit;
+    Move(Args[0], receiver, SizeOf(TValue));
+    Move(Args[1], Args[0], SizeOf(TValue) * (Length(Args) - 1));
+    Move(receiver, Args[Length(Args) - 1], SizeOf(TValue));
+  end;
+{$ELSE !CPUX86}
+  begin
+  end;
+{$ENDIF !CPUX86}
+
+  procedure PascalShiftSelfFirst(cc: TCallConv);
+{$IFDEF CPUX86}
+  var
+    receiver: array[1..SizeOf(TValue)] of Byte;
+  begin
+    if cc <> ccPascal then Exit;
+    Move(Args[Length(Args) - 1], receiver, SizeOf(TValue));
+    Move(Args[0], Args[1], SizeOf(TValue) * (Length(Args) - 1));
+    Move(receiver, Args[0], SizeOf(TValue));
+  end;
+{$ELSE !CPUX86}
+  begin
+  end;
+{$ENDIF !CPUX86}
+
+var
+  inst: TObject;
+  ii: TInterceptInfo;
+  argList: TArray<TValue>;
+  parList: TArray<TRttiParameter>;
+  i: Integer;
+  bContinue : boolean;
+begin
+  ii := UserData;
+  inst := Args[0].AsObject;
+
+  SetLength(argList, Length(Args) - 1);
+  for i := 1 to Length(Args) - 1 do
+    argList[i - 1] := Args[i];
+  try
+    if Assigned(FDoBefore) then
+    begin
+      bContinue := True;
+      FDoBefore(argList, bContinue);
+      if not bContinue then
+        exit;
+    end;
+    if Assigned(FDoBeforeSimple) then
+    begin
+      FDoBeforeSimple(argList);
+    end;
+    if Assigned(FDoBeforeFunc) then
+    begin
+      bContinue := True;
+      FDoBeforeFunc(argList, Result, bContinue);
+      if not bContinue then
+        exit;
+    end;
+    if Assigned(FDoBeforeSimpleFunc) then
+    begin
+      FDoBeforeSimpleFunc(argList, Result);
+    end;
+    try
+      parList := ii.Method.GetParameters;
+      for i := 1 to Length(Args) - 1 do
+      begin
+        if
+{$IFDEF CPUX86}
+          ((ii.Method.CallingConvention in [ccCdecl, ccStdCall, ccSafeCall]) and (pfConst in parList[i-1].Flags) and (parList[i-1].ParamType.TypeKind = tkVariant)) or
+{$ENDIF CPUX86}
+          ((pfConst in parList[i - 1].Flags) and (parList[i - 1].ParamType.TypeSize > SizeOf(Pointer)))
+          or ([pfVar, pfOut] * parList[i - 1].Flags <> []) then
+          Args[i] := argList[i - 1].GetReferenceToRawData
+        else
+          Args[i] := argList[i - 1];
+      end;
+
+      PascalShiftSelfLast(ii.Method.CallingConvention);
+      try
+        if ii.Method.ReturnType <> nil then
+          Result := Invoke(ii.OriginalCode, Args, ii.Method.CallingConvention, ii.Method.ReturnType.Handle)
+        else
+          Result := Invoke(ii.OriginalCode, Args, ii.Method.CallingConvention, nil);
+      finally
+        PascalShiftSelfFirst(ii.Method.CallingConvention);
+      end;
+    except
+      on e: System.SysUtils.Exception do
+      begin
+        if Assigned(FDoExcept) then
+        begin
+          bContinue := True;
+          FDoExcept(e, argList, Result, bContinue);
+          if bContinue then
+            raise;
+        end;
+      end;
+    end;
+    if Assigned(FDoAfterFunc) then
+    begin
+      FDoAfterFunc(argList, Result);
+    end;
+    if Assigned(FDoAfter) then
+    begin
+      FDoAfter(argList);
+    end;
+  finally
+    // Set modified by-ref arguments
+    for i := 1 to Length(Args) - 1 do
+      Args[i] := argList[i - 1];
+  end;
+end;
+
+function TInterceptImpl.skip: IIntercept;
+begin
+  FDoBefore := procedure(Args : TArray<TValue>; var Continue : boolean)
+  begin
+    Continue := False;
+  end;
+  Result := Self;
+end;
+
+function TInterceptImpl.after(proc: TInterceptAfterFunc): IIntercept;
+begin
+  FDoAfterFunc := proc;
+  Result := Self;
+end;
+
+function TInterceptImpl.before(proc: TInterceptBeforeFunc): IIntercept;
+begin
+  FDoBeforeFunc := proc;
+  Result := Self;
+end;
+
+function TInterceptImpl.before(proc: TInterceptAfterFunc): IIntercept;
+begin
+  FDoBeforeSimpleFunc := proc;
+  Result := Self;
+end;
+
+{ TInterceptImpl.TInterceptInfo }
+
+constructor TInterceptImpl.TInterceptInfo.Create(AOriginalCode: Pointer;
+  AMethod: TRttiMethod; const ACallback: TMethodImplementationCallback);
+begin
+  FImpl := AMethod.CreateImplementation(Self, ACallback);
+  FOriginalCode := AOriginalCode;
+  FProxyCode := FImpl.CodeAddress;
+  FMethod := AMethod;
+end;
+
+destructor TInterceptImpl.TInterceptInfo.Destroy;
+begin
+  FImpl.Free;
+  inherited;
 end;
 
 initialization

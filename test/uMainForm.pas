@@ -10,16 +10,19 @@ uses
 type
   {$M+}
   IAdder = interface(IInterface)
+    ['{0195DEEB-2F6A-44EC-993E-5CE88349CD84}']
     function Add(A,B : integer) : Integer;
   end;
 
   IFloatAdder = interface(IInterface)
+    ['{8EFB6202-7A54-4DE6-959C-B1D0744CE55B}']
     function Add(A,B : single) : single;
   end;
 
-  TMyAdder = class(TObject) // does not support IAdder
+  TMyAdder = class(TObject) // does not indicate support for IAdder or IFloatAdder but implements both
   public
-    function add(A,B : integer) : integer;
+    function Add(A,B : integer) : integer; overload;
+    function add(A,B : single) : single; overload;
   end;
 
   TForm1 = class(TForm)
@@ -35,6 +38,8 @@ type
     Button3: TButton;
     Button4: TButton;
     Button5: TButton;
+    Button6: TButton;
+    Button7: TButton;
     procedure Button1Click(Sender: TObject);
     procedure Timer1Timer(Sender: TObject);
     procedure CheckBox1Click(Sender: TObject);
@@ -42,6 +47,8 @@ type
     procedure Button3Click(Sender: TObject);
     procedure Button4Click(Sender: TObject);
     procedure Button5Click(Sender: TObject);
+    procedure Button6Click(Sender: TObject);
+    procedure Button7Click(Sender: TObject);
   private
     { Private declarations }
   public
@@ -110,6 +117,11 @@ begin
   end;
 end;
 
+function AddWithAdder(adder : IAdder; A, B : integer) : integer;
+begin
+  result := adder.add(A,B);
+end;
+
 procedure TForm1.Button5Click(Sender: TObject);
 var
   obj : TObject;
@@ -123,14 +135,46 @@ begin
       iResult := obj.asA<IAdder>.Add(2,7);
       Edit1.Text := IntToStr(iResult);
     end;
+  finally
+    obj.Free;
+  end;
+end;
+
+procedure TForm1.Button6Click(Sender: TObject);
+var
+  obj : TObject;
+  iResult : integer;
+  ia : iadder;
+  fa : ifloatadder;
+  eResult : Extended;
+begin
+  obj := TMyAdder.Create;
+  try
+    ia := (obj.duck<IAdder> as IAdder);
+    iResult := ia.Add(12,7);
+    Edit1.Text := IntToStr(iResult);
+  finally
+    obj.Free;
+  end;
+end;
+
+procedure TForm1.Button7Click(Sender: TObject);
+var
+  obj : TObject;
+  iResult : integer;
+  eResult : Extended;
+begin
+  obj := TMyAdder.Create;
+  try
     if obj.impersonates<IFloatAdder> then
     begin
-      eResult := obj.asA<IAdder>.Add(2.22,7.44);
-      Memo1.Text := FloatToStr(eResult);
+      eResult := obj.asA<IFloatAdder>.Add(2.22,7.44);
+      Edit1.Text := FloatToStr(eResult);
     end;
   finally
     obj.Free;
   end;
+
 end;
 
 procedure TForm1.CheckBox1Click(Sender: TObject);
@@ -153,6 +197,11 @@ end;
 function TMyAdder.add(A, B: integer): integer;
 begin
   Result := A+B;
+end;
+
+function TMyAdder.add(A, B: single): single;
+begin
+  Result := a+b;
 end;
 
 end.
