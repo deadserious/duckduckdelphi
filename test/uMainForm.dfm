@@ -106,15 +106,6 @@ object Form1: TForm1
     TabOrder = 8
     OnClick = Button5Click
   end
-  object Button6: TButton
-    Left = 448
-    Top = 256
-    Width = 121
-    Height = 25
-    Caption = 'Add Soft Interface'
-    TabOrder = 9
-    OnClick = Button6Click
-  end
   object Timer1: TTimer
     Enabled = False
     Interval = 3000

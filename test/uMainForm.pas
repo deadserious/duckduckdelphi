@@ -10,19 +10,16 @@ uses
 type
   {$M+}
   IAdder = interface(IInterface)
-    ['{0195DEEB-2F6A-44EC-993E-5CE88349CD84}']
     function Add(A,B : integer) : Integer;
   end;
 
   IFloatAdder = interface(IInterface)
-    ['{8EFB6202-7A54-4DE6-959C-B1D0744CE55B}']
     function Add(A,B : single) : single;
   end;
 
-  TMyAdder = class(TObject) // does not support IAdder or IFloatAdder
+  TMyAdder = class(TObject) // does not support IAdder
   public
-    function add(A,B : integer) : integer; overload;
-    function Add(A,B : single) : single;  overload;
+    function add(A,B : integer) : integer;
   end;
 
   TForm1 = class(TForm)
@@ -38,7 +35,6 @@ type
     Button3: TButton;
     Button4: TButton;
     Button5: TButton;
-    Button6: TButton;
     procedure Button1Click(Sender: TObject);
     procedure Timer1Timer(Sender: TObject);
     procedure CheckBox1Click(Sender: TObject);
@@ -46,7 +42,6 @@ type
     procedure Button3Click(Sender: TObject);
     procedure Button4Click(Sender: TObject);
     procedure Button5Click(Sender: TObject);
-    procedure Button6Click(Sender: TObject);
   private
     { Private declarations }
   public
@@ -115,11 +110,6 @@ begin
   end;
 end;
 
-function AddWithAdder(adder : IAdder; A, B : integer) : integer;
-begin
-  result := adder.add(A,B);
-end;
-
 procedure TForm1.Button5Click(Sender: TObject);
 var
   obj : TObject;
@@ -135,31 +125,9 @@ begin
     end;
     if obj.impersonates<IFloatAdder> then
     begin
-      eResult := obj.asA<IFloatAdder>.Add(2.22,7.44);
+      eResult := obj.asA<IAdder>.Add(2.22,7.44);
       Memo1.Text := FloatToStr(eResult);
     end;
-  finally
-    obj.Free;
-  end;
-end;
-
-procedure TForm1.Button6Click(Sender: TObject);
-var
-  obj : TObject;
-  iResult : integer;
-  ia : IAdder;
-  fa : ifloatadder;
-  eResult : Extended;
-begin
-  obj := TMyAdder.Create;
-  try
-    ia := obj.duck<IAdder> as IAdder;
-    iResult := ia.Add(12,7);
-    Edit1.Text := IntToStr(iResult);
-    fa := obj.duck<IFloatAdder> as IFloatAdder;
-    eResult := fa.Add(12.22,7.44);
-    Memo1.Text := FloatToStr(eResult);
-
   finally
     obj.Free;
   end;
@@ -183,11 +151,6 @@ end;
 { TMyAdder }
 
 function TMyAdder.add(A, B: integer): integer;
-begin
-  Result := A+B;
-end;
-
-function TMyAdder.add(A, B: single): single;
 begin
   Result := A+B;
 end;

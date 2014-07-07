@@ -374,10 +374,9 @@ type
     destructor Destroy; override;
 
     function From<TEvent, TReference>(proc: TReference): TEvent;
-    procedure ReleaseAndNil<TEvent>(var event : TEvent);
-    procedure Release<TEvent>(event : TEvent);
+    procedure Release<TEvent>(var event : TEvent);
     function Notify(proc : TNotifyReference) : TNotifyEvent; virtual;
-    procedure NotifyRelease(event : TNotifyEvent); virtual;
+    procedure NotifyRelease(var event : TNotifyEvent); virtual;
   end;
 
   TPropValue = record
@@ -396,7 +395,7 @@ type
 	  function can(methodName : string; Params : TArray<TRttiParameter>) : ISelector; overload;
 	  function can(methodName : string; Params : TArray<TRttiParameter>; Returns : TRttiType) : ISelector; overload;
     function isa(ClassType : TClass) : ISelector;
-    function &on(PropertyName : string) : ISelector;
+    function on(PropertyName : string) : ISelector;
     function first(Cnt : integer) : ISelector; overload;
     function first : ISelector; overload;
     function last(Cnt : integer) : ISelector; overload;
@@ -479,30 +478,20 @@ type
     function obj : TObject;
   end;
 
-  TSoftInterface<I: IInterface> = class(TVirtualInterface)
-  private
-    FSource : TObject;
-  public
-    constructor Create(Source : TObject);
-    procedure DoInvoke(Method : TRttiMethod; const Args : TArray<TValue>; out Result : TValue);
-  end;
-
   TDuckHelper = class helper for TObject
   public
-    function duck : IDuck; overload;
+    function duck : IDuck;
     // this should be under IDuck, but interfaces don't currently support generic methods.
     function impersonates<Intf> : boolean;
     function asA<Intf> : IImpersonated;
-    function duck<I : IInterface> : TSoftInterface<I>; overload;
   end;
 
   TDuck = class(TObject)
   public
-    function duck : IDuck; overload;
+    function duck : IDuck;
     // this should be under IDuck, but interfaces don't currently support generic methods.
     function impersonates<Intf> : boolean;
     function asA<Intf> : IImpersonated;
-    function duck<I : IInterface> : TSoftInterface<I>; overload;
   end;
 
   TDuckVarData = packed record
@@ -546,7 +535,6 @@ resourcestring
 implementation
 
 type
-
   TSelectorImpl = class(TInterfacedObject, ISelector)
   private
     FResults : TList<TObject>;
@@ -567,7 +555,7 @@ type
 	  function can(methodName : string; Params : TArray<TRttiParameter>) : ISelector; overload;
 	  function can(methodName : string; Params : TArray<TRttiParameter>; Returns : TRttiType) : ISelector; overload;
     function isa(ClassType : TClass) : ISelector;
-    function &on(PropertyName : string) : ISelector;
+    function on(PropertyName : string) : ISelector;
     function first(Cnt : integer) : ISelector; overload;
     function first : ISelector; overload;
     function last(Cnt : integer) : ISelector; overload;
@@ -716,26 +704,6 @@ begin
   RegisterPropertyEnumerator('Rows','RowCount');
 end;
 
-{ TSoftInterface<I> }
-
-constructor  TSoftInterface<I>.Create(Source : TObject);
-begin
-  FSource := Source;
-  inherited Create(TypeInfo(I), DoInvoke);
-end;
-
-procedure TSoftInterface<I>.DoInvoke(Method: TRttiMethod;
-  const Args: TArray<TValue>; out Result: TValue);
-var
-  ary : TArray<TValue>;
-  i : integer;
-begin
-  SetLength(ary,Length(Args)-1);
-  for i := 1 to length(args)-1 do
-    ary[i-1] := Args[i];
-
-  Result := TRTTI.call(FSource,Method.Name,ary);
-end;
 
 { TRTTI }
 
@@ -745,32 +713,7 @@ var
   meth : TRttiMethod;
 begin
   Result := nil;
-  meth := nil;
-  TRTTI.eachMethod(obj,procedure(m : TRTTIMethod)
-  var
-    params : TArray<TRTTIParameter>;
-    i : integer;
-    b : boolean;
-  begin
-    if (meth = nil) and (CompareText(m.Name,MethodName)=0) then
-    begin
-      params :=  m.GetParameters;
-      if length(params) = length(args) then
-      begin
-        b := True;
-        for i := 0 to Length(args)-1 do
-        begin
-          if args[i].TypeInfo^.Kind <> params[i].ParamType.TypeKind then
-          begin
-            b := false;
-            break;
-          end;
-        end;
-        if b then
-          meth := m;
-      end;
-    end;
-  end);
+  meth := cxt.GetType(obj.ClassInfo).GetMethod(MethodName);
   if meth <> nil then
   begin
     Result := meth.Invoke(obj,args);
@@ -1197,15 +1140,8 @@ type
   PPVtable = ^PVtable;
 begin
   // 3 is offset of Invoke, after QI, AddRef, Release
-  if Pointer(ameth) <> nil then
-  begin
-    TMethod(evt).Code := PPVtable(ameth)^^[3];
-    TMethod(evt).Data := Pointer(ameth);
-  end else
-  begin
-    TMethod(evt).Code := nil;
-    TMethod(evt).Data := nil;
-  end;
+  TMethod(evt).Code := PPVtable(ameth)^^[3];
+  TMethod(evt).Data := Pointer(ameth);
 end;
 
 procedure TEvent.ParseMethod(const meth; var p1, p2 : Pointer);
@@ -1232,19 +1168,13 @@ begin
     intf := PInterface(@proc);
 
     ParseMethod(Result, p1, p2);
-    FEvents.AddOrSetValue(TPair<Pointer,Pointer>.Create(p1, p2),intf^);
+    FEvents.Add(TPair<Pointer,Pointer>.Create(p1, p2),intf^);
   finally
     TMonitor.Exit(Self);
   end;
 end;
 
-procedure TEvent.ReleaseAndNil<TEvent>(var event : TEvent);
-begin
-  Release<TEvent>(event);
-  event := TEvent(nil);
-end;
-
-procedure TEvent.Release<TEvent>(event: TEvent);
+procedure TEvent.Release<TEvent>(var event: TEvent);
 type
   PInterface = ^IInterface;
 var
@@ -1258,14 +1188,15 @@ begin
   finally
     TMonitor.Exit(Self);
   end;
+  event := TEvent(nil);
 end;
 
 function TEvent.Notify(proc: TNotifyReference): TNotifyEvent;
 begin
-  Result := From<TNotifyEvent, TNotifyReference>(proc)
+  Result := From<TNotifyEvent, TNotifyReference>(proc);
 end;
 
-procedure TEvent.NotifyRelease(event: TNotifyEvent);
+procedure TEvent.NotifyRelease(var event: TNotifyEvent);
 begin
   Release<TNotifyEvent>(event);
 end;
@@ -1582,12 +1513,6 @@ begin
   TDuckVarData(p^).VIType := TypeInfo(Intf);
 end;
 
-function TDuckHelper.duck<I> : TSoftInterface<I>;
-begin
-  Result := TSoftInterface<I>.Create(Self);
-end;
-
-
 { TDuck }
 
 function TDuck.duck: IDuck;
@@ -1621,14 +1546,6 @@ begin
   TDuckVarData(p^).VDuck := duck;
   TDuckVarData(p^).VIType := TypeInfo(Intf);
 end;
-
-function TDuck.duck<I> : TSoftInterface<I>;
-var
-  Intf : IInterface;
-begin
-  Result := TSoftInterface<I>.Create(Self);
-end;
-
 
 { TSelectorImpl }
 
